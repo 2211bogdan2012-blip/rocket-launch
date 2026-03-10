@@ -828,7 +828,6 @@ canvas#gameCanvas {
 const CONFIG = {
   HOUSE_EDGE: 0.04,
   RTP: 0.96,
-  MIN_CRASH_POINT: 1.20,
   GROWTH_RATE: 0.06,
   TICK_MS: 50,
   
@@ -856,10 +855,10 @@ class MathEngine {
   // Generate crash point with house edge (provably fair style)
   static generateCrashPoint() {
     const r = Math.random();
-    // Exponential distribution: E[1/crash] = house_edge → ~96% RTP
-    const raw = Math.max(1.00, Math.floor(CONFIG.RTP / r * 100) / 100);
-    // Enforce minimum flight time — no instant crashes
-    return Math.max(raw, CONFIG.MIN_CRASH_POINT);
+    // Provably fair: crash = 0.96/r, clamped to 1.00 minimum
+    // P(crash=1.00) = P(r >= 0.96) = 4% = house edge
+    // EV at any cashout m >= 1.00: P(crash>=m)*m = (0.96/m)*m = 0.96 = 96% RTP
+    return Math.max(1.00, Math.floor(CONFIG.RTP / r * 100) / 100);
   }
 
   // Select event type based on weights
@@ -1488,104 +1487,33 @@ class GameRenderer {
       ctx.translate(o.x, o.y);
       
       if (o.type === 'debris') {
-        const rot = t * 1.8 + (o.size * 0.5);
-        
-        // Smoke trail (behind asteroid)
-        ctx.save();
-        for (let s = 0; s < 4; s++) {
-          const sx = Math.cos(rot + 1) * (o.size * 0.8 + s * o.size * 0.6) + Math.sin(t * 5 + s) * 3;
-          const sy = Math.sin(rot + 1) * (o.size * 0.8 + s * o.size * 0.6) + Math.cos(t * 4 + s) * 3;
-          ctx.beginPath();
-          ctx.arc(sx, sy, o.size * (0.4 - s * 0.07), 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(120,113,108,${0.25 - s * 0.05})`;
-          ctx.fill();
-        }
-        ctx.restore();
+        // Simple fireball — glowing orange sphere with flicker
+        const flicker = 1 + Math.sin(t * 10 + o.size) * 0.15;
+        const s = o.size * flicker;
 
-        // Flame tail — multiple layers
-        ctx.save();
-        for (let f = 0; f < 7; f++) {
-          const flicker = Math.sin(t * 14 + f * 1.7) * o.size * 0.25;
-          const dist = o.size * (0.6 + f * 0.35);
-          const fx = Math.cos(rot + 0.9) * dist + flicker * 0.2;
-          const fy = Math.sin(rot + 0.9) * dist + flicker;
-          const fr = o.size * (0.45 - f * 0.05);
-          const colors = ['#fef08a', '#fbbf24', '#f59e0b', '#f97316', '#ea580c', '#dc2626', '#991b1b'];
-          ctx.beginPath();
-          ctx.arc(fx, fy, Math.max(fr, 1), 0, Math.PI * 2);
-          ctx.fillStyle = colors[f];
-          ctx.globalAlpha = o.alpha * (0.6 - f * 0.07);
-          ctx.fill();
-        }
-        ctx.globalAlpha = o.alpha;
-        ctx.restore();
+        // Outer glow
+        const glow = ctx.createRadialGradient(0, 0, s * 0.3, 0, 0, s * 2);
+        glow.addColorStop(0, 'rgba(249,115,22,0.4)');
+        glow.addColorStop(0.5, 'rgba(239,68,68,0.12)');
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(-s*2, -s*2, s*4, s*4);
 
-        ctx.rotate(rot);
-        
-        // Heat glow
-        const heatGlow = ctx.createRadialGradient(0, 0, o.size * 0.3, 0, 0, o.size * 1.5);
-        heatGlow.addColorStop(0, 'rgba(249,115,22,0.25)');
-        heatGlow.addColorStop(0.5, 'rgba(239,68,68,0.08)');
-        heatGlow.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = heatGlow;
-        ctx.fillRect(-o.size * 1.5, -o.size * 1.5, o.size * 3, o.size * 3);
-        
-        // Rocky body
-        ctx.shadowColor = '#f97316';
-        ctx.shadowBlur = o.size * 0.6;
-        const bodyGrad = ctx.createRadialGradient(o.size * -0.15, o.size * -0.15, 0, 0, 0, o.size * 0.8);
-        bodyGrad.addColorStop(0, '#78716c');
-        bodyGrad.addColorStop(0.5, '#44403c');
-        bodyGrad.addColorStop(1, '#1c1917');
-        ctx.fillStyle = bodyGrad;
+        // Core
+        const coreGrad = ctx.createRadialGradient(-s*0.15, -s*0.15, 0, 0, 0, s);
+        coreGrad.addColorStop(0, '#fef08a');
+        coreGrad.addColorStop(0.3, '#fbbf24');
+        coreGrad.addColorStop(0.6, '#f97316');
+        coreGrad.addColorStop(1, '#dc2626');
+        ctx.fillStyle = coreGrad;
         ctx.beginPath();
-        const pts = o.points || 8;
-        for (let i = 0; i < pts; i++) {
-          const ang = (i / pts) * Math.PI * 2;
-          const r = o.size * (0.55 + Math.sin(i * 3.7 + o.size) * 0.25);
-          if (i === 0) ctx.moveTo(Math.cos(ang) * r, Math.sin(ang) * r);
-          else ctx.lineTo(Math.cos(ang) * r, Math.sin(ang) * r);
-        }
-        ctx.closePath();
+        ctx.arc(0, 0, s, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
 
-        // Lava cracks — glowing veins
-        ctx.shadowColor = '#fbbf24';
-        ctx.shadowBlur = 3;
-        ctx.strokeStyle = '#fbbf24';
-        ctx.lineWidth = 1.5;
+        // Highlight
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
         ctx.beginPath();
-        ctx.moveTo(-o.size * 0.4, -o.size * 0.1);
-        ctx.quadraticCurveTo(-o.size * 0.1, o.size * 0.05, o.size * 0.15, o.size * 0.3);
-        ctx.stroke();
-        ctx.strokeStyle = '#f97316';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.moveTo(o.size * 0.15, -o.size * 0.35);
-        ctx.quadraticCurveTo(0, -o.size * 0.05, -o.size * 0.2, o.size * 0.25);
-        ctx.stroke();
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(o.size * 0.3, 0);
-        ctx.lineTo(o.size * 0.1, o.size * 0.2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // Molten core spots
-        const pulse = 0.7 + Math.sin(t * 8) * 0.3;
-        ctx.fillStyle = `rgba(251,191,36,${pulse})`;
-        ctx.beginPath();
-        ctx.arc(-o.size * 0.08, o.size * 0.05, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = `rgba(239,68,68,${pulse * 0.8})`;
-        ctx.beginPath();
-        ctx.arc(o.size * 0.08, -o.size * 0.12, 2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = `rgba(254,240,138,${pulse * 0.6})`;
-        ctx.beginPath();
-        ctx.arc(o.size * 0.15, o.size * 0.18, 1.5, 0, Math.PI * 2);
+        ctx.ellipse(-s*0.2, -s*0.25, s*0.4, s*0.25, -0.3, 0, Math.PI * 2);
         ctx.fill();
         
       } else if (o.type === 'boss' && !o.isRage) {
@@ -1932,9 +1860,9 @@ function updateActionButton() {
     if (totalCost > State.balance) {
       btn.classList.add('disabled');
     }
-  } else if (State.phase === 'countdown') {
+  } else if (State.phase === 'countdown' || State.phase === 'launching') {
     btn.className = 'action-btn disabled';
-    btn.textContent = 'STARTING...';
+    btn.textContent = State.phase === 'launching' ? 'LAUNCHING...' : 'STARTING...';
     sub.textContent = '';
     btn.appendChild(sub);
   } else if (State.phase === 'flying') {
@@ -2086,7 +2014,7 @@ document.querySelectorAll('.mode-tab').forEach(tab => {
 // ──────────── GAME LOGIC ────────────
 function handleAction() {
   sound.init();
-  if (State.phase === 'countdown') return;
+  if (State.phase === 'countdown' || State.phase === 'launching') return;
   
   if (State.phase === 'flying') {
     cashOut();
@@ -2151,14 +2079,24 @@ function startRound() {
 }
 
 function launchFlight() {
-  State.phase = 'flying';
-  DOM.multiplierLabel.textContent = '';
-  DOM.multiplierOverlay.classList.remove('centered');
+  // Visual launch sequence — rocket appears, stars start, but NO ticking yet
+  State.phase = 'launching';
+  DOM.multiplier.textContent = '1.00×';
+  DOM.multiplierLabel.textContent = 'LAUNCHING';
+  DOM.multiplierOverlay.classList.add('centered');
   updateActionButton();
   sound.play('launch');
 
-  // Start ticking
-  State.tickInterval = setInterval(gameTick, CONFIG.TICK_MS);
+  // After 1.5s, start actual ticking (player can now cashout)
+  const launchDur = State.turbo ? 600 : 1500;
+  setTimeout(() => {
+    if (State.phase !== 'launching') return;
+    State.phase = 'flying';
+    DOM.multiplierLabel.textContent = '';
+    DOM.multiplierOverlay.classList.remove('centered');
+    updateActionButton();
+    State.tickInterval = setInterval(gameTick, CONFIG.TICK_MS);
+  }, launchDur);
 }
 
 function gameTick() {
@@ -2364,9 +2302,10 @@ function crash() {
 
 // ──────────── RENDER LOOP ────────────
 function renderLoop() {
-  renderer.render(State.phase === 'flying' ? 'flying' :
+  const visualState = (State.phase === 'flying' || State.phase === 'launching') ? 'flying' :
                   State.phase === 'crashed' ? 'crashed' :
-                  State.phase === 'cashed_out' ? 'cashed_out' : 'idle');
+                  State.phase === 'cashed_out' ? 'cashed_out' : 'idle';
+  renderer.render(visualState);
   requestAnimationFrame(renderLoop);
 }
 
