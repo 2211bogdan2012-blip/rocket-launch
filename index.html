@@ -1163,7 +1163,7 @@ class GameRenderer {
     // Stars
     this._renderStars(ctx, state);
 
-    // Multiplier graph curve
+    // Multiplier graph curve + objects (only during actual flight and after)
     if (state === 'flying' || state === 'crashed' || state === 'cashed_out') {
       this._renderGraph(ctx, state);
     }
@@ -1171,7 +1171,6 @@ class GameRenderer {
     if (state === 'flying' || state === 'crashed' || state === 'cashed_out') {
       this._renderObstacles(ctx);
       this._renderCollectibles(ctx);
-      // Hide rocket on crash (explosion replaces it)
       if (state !== 'crashed') {
         this._renderRocket(ctx);
       }
@@ -1206,12 +1205,12 @@ class GameRenderer {
   }
 
   _renderStars(ctx, state) {
-    const mult = state === 'flying' ? (window._currentMult || 1) : 1;
-    const isFlying = state === 'flying';
+    const isActive = state === 'flying' || state === 'launching';
+    const mult = isActive ? (window._currentMult || 1) : 1;
     
     // Speed: rocket flies right+up → stars fly LEFT + slightly DOWN
-    const speedX = isFlying ? -(2 + Math.min(mult * 1.2, 14)) : 0;
-    const speedY = isFlying ? (0.8 + Math.min(mult * 0.3, 4)) : 0.2;
+    const speedX = isActive ? -(2 + Math.min(mult * 1.2, 14)) : 0;
+    const speedY = isActive ? (0.8 + Math.min(mult * 0.3, 4)) : 0.2;
     
     // Streak angle: diagonal, matching rocket's perceived direction
     const streakAngle = Math.atan2(-speedY, -speedX); // opposite of motion
@@ -1228,7 +1227,7 @@ class GameRenderer {
       const sx = s.x;
       const sy = s.y;
 
-      if (isFlying && mult > 1.2) {
+      if (isActive && mult > 1.2) {
         // Diagonal streaks — direction matches camera motion
         const streakLen = Math.min(s.speed * (2 + mult) * 1.5, 35);
         const dx = Math.cos(streakAngle) * streakLen;
@@ -1248,7 +1247,7 @@ class GameRenderer {
     });
 
     // Speed lines at high multiplier — diagonal matching flight direction
-    if (isFlying && mult > 3) {
+    if (isActive && mult > 3) {
       const lineCount = Math.min(Math.floor((mult - 3) * 2.5), 18);
       ctx.globalAlpha = Math.min((mult - 3) / 8, 0.25);
       for (let i = 0; i < lineCount; i++) {
@@ -1276,15 +1275,20 @@ class GameRenderer {
     const gw = this.w - padding.left - padding.right;
     const gh = this.h - padding.top - padding.bottom;
 
-    // Sliding window: show last N ticks, rocket stays at ~80% of X
-    const visibleTicks = 200; // ~10 seconds visible
+    // Sliding window
+    const visibleTicks = 200;
     const totalPts = this.graphPoints.length;
     const scrollOffset = Math.max(0, totalPts - Math.floor(visibleTicks * 0.8));
     const visibleStart = Math.max(0, scrollOffset);
     const visibleEnd = totalPts;
     const xRange = Math.max(visibleTicks, visibleEnd - visibleStart);
 
-    const maxMult = Math.max(2.0, ...this.graphPoints.map(p => p.mult)) * 1.15;
+    // Cached maxMult — only grows, O(1) per frame
+    const lastMult = this.graphPoints[totalPts - 1].mult;
+    if (!this._cachedMaxMult || lastMult > this._cachedMaxMult) {
+      this._cachedMaxMult = lastMult;
+    }
+    const maxMult = Math.max(2.0, this._cachedMaxMult) * 1.15;
 
     const toX = (i) => padding.left + ((i - visibleStart) / xRange) * gw;
     const toY = (m) => this.h - padding.bottom - ((m - 1) / (maxMult - 1)) * gh;
@@ -1394,7 +1398,8 @@ class GameRenderer {
     this.eventMarkers.forEach(m => {
       if (m.tick < visibleStart || m.tick >= visibleEnd) return;
       const mx = toX(m.tick);
-      const my = toY(this.graphPoints[m.tick] ? this.graphPoints[m.tick].mult : 1);
+      const ptIdx = Math.min(m.tick - 1, this.graphPoints.length - 1);
+      const my = toY(ptIdx >= 0 && this.graphPoints[ptIdx] ? this.graphPoints[ptIdx].mult : 1);
       const color = markerColors[m.type] || '#ffffff';
       // Dot
       ctx.beginPath();
@@ -1754,7 +1759,9 @@ class GameRenderer {
   }
 
   addExplosion(x, y, color, count = 30) {
-    for (let i = 0; i < count; i++) {
+    const room = Math.max(0, 300 - this.particles.length);
+    const actual = Math.min(count, room);
+    for (let i = 0; i < actual; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = Math.random() * 5 + 2;
       this.particles.push({
@@ -1770,6 +1777,7 @@ class GameRenderer {
   }
 
   addTrailParticle(x, y) {
+    if (this.particles.length >= 300) return;
     const mult = window._currentMult || 1;
     const speed = 1.5 + Math.min(mult * 0.4, 4);
     const size = 22;
@@ -2120,7 +2128,7 @@ DOM.autoCashout.addEventListener('change', () => {
 // Mode tabs
 document.querySelectorAll('.mode-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    if (State.phase === 'flying' || State.phase === 'countdown') return;
+    if (State.phase === 'flying' || State.phase === 'countdown' || State.phase === 'launching') return;
     document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     State.mode = tab.dataset.mode;
@@ -2168,6 +2176,7 @@ function startRound() {
   renderer.collectibles = [];
   renderer.isGolden = false;
   renderer._prevAngle = undefined;
+  renderer._cachedMaxMult = 0;
 
   // Hide previous round result
   DOM.roundResult.className = 'round-result';
@@ -2195,7 +2204,6 @@ function startRound() {
 }
 
 function launchFlight() {
-  // Visual launch sequence — rocket appears, stars start, but NO ticking yet
   State.phase = 'launching';
   DOM.multiplier.textContent = '1.00×';
   DOM.multiplierLabel.textContent = 'LAUNCHING';
@@ -2203,10 +2211,28 @@ function launchFlight() {
   updateActionButton();
   sound.play('launch');
 
-  // After 1.5s, start actual ticking (player can now cashout)
   const launchDur = State.turbo ? 600 : 1500;
   setTimeout(() => {
     if (State.phase !== 'launching') return;
+    
+    // Check for instant/fast crash (< 1 second flight)
+    // These become "FAILED LAUNCH" — player never gets cashout button
+    if (State.currentRound.crashTick < 15) {
+      // Failed launch — skip flying, go straight to crash
+      DOM.multiplier.textContent = State.currentRound.crashPoint.toFixed(2) + '×';
+      DOM.multiplierLabel.textContent = 'FAILED LAUNCH';
+      State.currentMultiplier = State.currentRound.crashPoint;
+      
+      // Brief dramatic pause then crash
+      renderer.rocketX = renderer.w / 2;
+      renderer.rocketY = renderer.h / 2;
+      setTimeout(() => {
+        crash();
+      }, State.turbo ? 300 : 800);
+      return;
+    }
+    
+    // Normal flight
     State.phase = 'flying';
     DOM.multiplierLabel.textContent = '';
     DOM.multiplierOverlay.classList.remove('centered');
@@ -2418,7 +2444,8 @@ function crash() {
 
 // ──────────── RENDER LOOP ────────────
 function renderLoop() {
-  const visualState = (State.phase === 'flying' || State.phase === 'launching') ? 'flying' :
+  const visualState = State.phase === 'flying' ? 'flying' :
+                  State.phase === 'launching' ? 'launching' :
                   State.phase === 'crashed' ? 'crashed' :
                   State.phase === 'cashed_out' ? 'cashed_out' : 'idle';
   renderer.render(visualState);
