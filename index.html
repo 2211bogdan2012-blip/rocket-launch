@@ -226,15 +226,20 @@ canvas#gameCanvas {
 /* ═══════════ HISTORY BAR ═══════════ */
 .history-bar {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 10px;
+  left: 10px;
+  right: 10px;
   display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
-  max-width: 55%;
+  gap: 4px;
   z-index: 5;
   align-items: center;
+  overflow-x: auto;
+  overflow-y: visible;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
+
+.history-bar::-webkit-scrollbar { display: none; }
 
 .history-badge {
   padding: 3px 8px;
@@ -244,39 +249,31 @@ canvas#gameCanvas {
   font-weight: 600;
   animation: badgeIn 0.3s ease-out;
   cursor: pointer;
-  position: relative;
   transition: transform 0.15s;
+  flex-shrink: 0;
 }
 
-.history-badge:hover { transform: scale(1.15); }
+.history-badge:hover { transform: scale(1.1); }
 
-.history-badge .badge-tooltip {
+/* Global floating tooltip */
+.global-tooltip {
+  position: fixed;
   display: none;
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 6px;
-  background: #1a2236ee;
+  background: #111827f0;
   border: 1px solid var(--border-active);
-  border-radius: 6px;
-  padding: 6px 10px;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   white-space: nowrap;
   color: var(--text-secondary);
-  backdrop-filter: blur(6px);
-  z-index: 20;
+  backdrop-filter: blur(8px);
+  z-index: 9999;
   pointer-events: none;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
 
-/* Keep tooltips inside canvas */
-.history-badge:first-child .badge-tooltip,
-.history-badge:nth-child(2) .badge-tooltip {
-  left: 0;
-  transform: none;
-}
-
-.history-badge:hover .badge-tooltip { display: block; }
+.global-tooltip.visible { display: block; }
 
 @keyframes badgeIn {
   from { transform: scale(0); opacity: 0; }
@@ -1025,6 +1022,9 @@ canvas#gameCanvas {
     Each round uses a provably fair seed shown in the footer.</p>
   </div>
 </div>
+
+<!-- GLOBAL TOOLTIP (position:fixed, never clipped) -->
+<div class="global-tooltip" id="globalTooltip"></div>
 
 <script>
 // ═══════════════════════════════════════════════
@@ -2172,12 +2172,9 @@ function addHistory(crashPoint, eventType, cashedOut) {
   }
   badge.textContent = crashPoint.toFixed(2) + '×';
   
-  // Tooltip
+  // Tooltip data (shown via global floating tooltip)
   const eventNames = { base_crash: 'Base', mini_boss: 'Mini-Boss', debris: 'Debris', boss_rage: 'Boss Rage', golden_rocket: 'Golden' };
-  const tooltip = document.createElement('div');
-  tooltip.className = 'badge-tooltip';
-  tooltip.textContent = `#${entry.round} · $${entry.bet} · ${eventNames[eventType] || 'Base'} · ${cashedOut ? 'Win' : 'Crash'} · ${entry.seed.slice(0, 8)}`;
-  badge.appendChild(tooltip);
+  badge.dataset.tip = `#${entry.round} · $${entry.bet} · ${eventNames[eventType] || 'Base'} · ${cashedOut ? 'Win' : 'Crash'} · ${entry.seed.slice(0, 8)}`;
 
   DOM.historyBar.insertBefore(badge, DOM.historyBar.firstChild);
   
@@ -2647,6 +2644,42 @@ function renderLoop() {
   renderer.render(visualState);
   requestAnimationFrame(renderLoop);
 }
+
+// ──────────── GLOBAL TOOLTIP (position:fixed, never clipped) ────────────
+const _tip = document.getElementById('globalTooltip');
+
+DOM.historyBar.addEventListener('mouseenter', (e) => {
+  const badge = e.target.closest('.history-badge');
+  if (!badge || !badge.dataset.tip) return;
+  
+  _tip.textContent = badge.dataset.tip;
+  _tip.classList.add('visible');
+  
+  const rect = badge.getBoundingClientRect();
+  const tipW = _tip.offsetWidth;
+  const tipH = _tip.offsetHeight;
+  
+  // Position below badge, centered
+  let left = rect.left + rect.width / 2 - tipW / 2;
+  let top = rect.bottom + 8;
+  
+  // Clamp to viewport
+  left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+  
+  // If goes below viewport, show above
+  if (top + tipH > window.innerHeight - 8) {
+    top = rect.top - tipH - 8;
+  }
+  
+  _tip.style.left = left + 'px';
+  _tip.style.top = top + 'px';
+}, true);
+
+DOM.historyBar.addEventListener('mouseleave', (e) => {
+  const badge = e.target.closest('.history-badge');
+  if (!badge) return;
+  _tip.classList.remove('visible');
+}, true);
 
 // ──────────── KEYBOARD ────────────
 document.addEventListener('keydown', (e) => {
