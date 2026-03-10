@@ -253,10 +253,10 @@ canvas#gameCanvas {
 .history-badge .badge-tooltip {
   display: none;
   position: absolute;
-  top: 100%;
+  bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  margin-top: 6px;
+  margin-bottom: 6px;
   background: #1a2236ee;
   border: 1px solid var(--border-active);
   border-radius: 6px;
@@ -267,6 +267,13 @@ canvas#gameCanvas {
   backdrop-filter: blur(6px);
   z-index: 20;
   pointer-events: none;
+}
+
+/* Keep tooltips inside canvas */
+.history-badge:first-child .badge-tooltip,
+.history-badge:nth-child(2) .badge-tooltip {
+  left: 0;
+  transform: none;
 }
 
 .history-badge:hover .badge-tooltip { display: block; }
@@ -509,19 +516,19 @@ canvas#gameCanvas {
 .autobet-toggle {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 8px;
+  gap: 8px;
 }
 
 .toggle-switch {
   position: relative;
-  width: 44px;
-  height: 24px;
+  width: 40px;
+  height: 22px;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 11px;
   cursor: pointer;
   transition: all 0.3s;
+  flex-shrink: 0;
 }
 
 .toggle-switch.active {
@@ -533,16 +540,43 @@ canvas#gameCanvas {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   background: var(--text-muted);
   border-radius: 50%;
   transition: all 0.3s;
 }
 
 .toggle-switch.active .toggle-knob {
-  left: 22px;
+  left: 20px;
   background: var(--accent-green);
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.toggle-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-active);
+  color: var(--text-secondary);
+}
+
+.toggle-btn.active {
+  background: var(--accent-green-dim);
+  border-color: var(--accent-green);
+  color: var(--accent-green);
 }
 
 .autobet-toggle span {
@@ -554,15 +588,19 @@ canvas#gameCanvas {
 .stat-row {
   display: flex;
   justify-content: space-between;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border-color);
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid #1e293b44;
+  gap: 12px;
 }
 
 .stat-row:last-child { border-bottom: none; }
 
 .stat-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .stat-value {
@@ -570,6 +608,10 @@ canvas#gameCanvas {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ═══════════ BOTTOM BAR ═══════════ */
@@ -815,19 +857,9 @@ canvas#gameCanvas {
         <input type="number" class="auto-cashout-input" id="autoCashout" value="" placeholder="OFF" min="1.01" step="0.01">
         <span style="font-size:12px; color: var(--text-muted)">×</span>
       </div>
-      <div style="display:flex; gap:16px; margin-top:8px;">
-        <div class="autobet-toggle">
-          <div class="toggle-switch" id="autoBetToggle" onclick="toggleAutoBet()">
-            <div class="toggle-knob"></div>
-          </div>
-          <span>Auto</span>
-        </div>
-        <div class="autobet-toggle">
-          <div class="toggle-switch" id="turboToggle" onclick="toggleTurbo()">
-            <div class="toggle-knob"></div>
-          </div>
-          <span>Turbo</span>
-        </div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="toggle-btn" id="autoBetBtn" onclick="toggleAutoBet()">Auto</button>
+        <button class="toggle-btn" id="turboBtn" onclick="toggleTurbo()">Turbo ⚡</button>
       </div>
     </div>
 
@@ -884,13 +916,13 @@ const CONFIG = {
     ceo_mode:       { multiplier: 100, winCap: 500000, label: 'CEO (100×)' },
   },
 
-  // Event weights (sum ≈ probability distribution)
+  // Event weights (normalized, sum = 1.0) — VISUAL ONLY, no payout impact
   EVENTS: {
-    base_crash:    { weight: 0.5204, rtpShare: 0.52 },
-    mini_boss:     { weight: 0.1174, rtpShare: 0.117, triggerRange: [2.0, 8.0], bonusMult: [1.2, 2.5] },
-    debris:        { weight: 0.0800, rtpShare: 0.08,  triggerRange: [1.5, 4.0], penalty: [0.5, 0.8] },
-    boss_rage:     { weight: 0.0793, rtpShare: 0.079, triggerRange: [3.0, 12.0], bonusMult: [1.5, 5.0] },
-    golden_rocket: { weight: 0.1600, rtpShare: 0.16,  triggerRange: [1.5, 6.0], bonusMult: [2.0, 10.0] },
+    base_crash:    { weight: 0.5629 },
+    mini_boss:     { weight: 0.1174, triggerRange: [2.0, 8.0] },
+    debris:        { weight: 0.0800, triggerRange: [1.5, 4.0] },
+    boss_rage:     { weight: 0.0797, triggerRange: [3.0, 12.0] },
+    golden_rocket: { weight: 0.1600, triggerRange: [1.5, 6.0] },
   },
 
   COUNTDOWN_SEC: 3,
@@ -918,66 +950,37 @@ class MathEngine {
     return 'base_crash';
   }
 
-  // Generate full round events
+  // Generate full round events (visual only — no payout impact)
   static generateRound() {
     const crashPoint = this.generateCrashPoint();
     const eventType = this.selectEventType();
     const events = [];
     
-    // Base flight events
     events.push({ type: 'flight_start', tick: 0 });
 
-    // Add mechanic-specific events
+    // Visual events: trigger at a point before crash
     if (eventType === 'mini_boss' && crashPoint >= 2.0) {
-      const trigger = this.randomInRange(
-        Math.min(2.0, crashPoint * 0.3),
-        Math.min(crashPoint * 0.6, 8.0)
-      );
-      const bonus = this.randomInRange(1.2, Math.min(2.5, crashPoint / trigger));
-      events.push({
-        type: 'mini_boss',
-        triggerAt: Math.round(trigger * 100) / 100,
-        bonusMult: Math.round(bonus * 100) / 100,
-        tick: this.multiplierToTick(trigger),
-      });
+      const trigger = this.randomInRange(Math.min(2.0, crashPoint * 0.3), Math.min(crashPoint * 0.6, 8.0));
+      events.push({ type: 'mini_boss', tick: this.multiplierToTick(trigger) });
     }
 
     if (eventType === 'debris' && crashPoint >= 1.5) {
       const trigger = this.randomInRange(1.3, Math.min(crashPoint * 0.7, 4.0));
-      events.push({
-        type: 'debris',
-        triggerAt: Math.round(trigger * 100) / 100,
-        penalty: Math.round(this.randomInRange(0.5, 0.8) * 100) / 100,
-        tick: this.multiplierToTick(trigger),
-      });
+      events.push({ type: 'debris', tick: this.multiplierToTick(trigger) });
     }
 
     if (eventType === 'boss_rage' && crashPoint >= 3.0) {
       const trigger = this.randomInRange(2.0, Math.min(crashPoint * 0.5, 10.0));
-      const bonus = this.randomInRange(1.5, Math.min(5.0, crashPoint / trigger));
-      events.push({
-        type: 'boss_rage',
-        triggerAt: Math.round(trigger * 100) / 100,
-        bonusMult: Math.round(bonus * 100) / 100,
-        tick: this.multiplierToTick(trigger),
-      });
+      events.push({ type: 'boss_rage', tick: this.multiplierToTick(trigger) });
     }
 
     if (eventType === 'golden_rocket' && crashPoint >= 1.5) {
       const trigger = this.randomInRange(1.2, Math.min(crashPoint * 0.4, 5.0));
-      const bonus = this.randomInRange(2.0, Math.min(10.0, crashPoint / trigger));
-      events.push({
-        type: 'golden_rocket',
-        triggerAt: Math.round(trigger * 100) / 100,
-        bonusMult: Math.round(bonus * 100) / 100,
-        tick: this.multiplierToTick(trigger),
-      });
+      events.push({ type: 'golden_rocket', tick: this.multiplierToTick(trigger) });
     }
 
-    // Sort events by tick
     events.sort((a, b) => a.tick - b.tick);
 
-    // Crash event
     const crashTick = this.multiplierToTick(crashPoint);
     events.push({ type: 'crash', tick: crashTick, crashPoint });
 
@@ -1828,8 +1831,6 @@ const State = {
   // Events
   triggeredEvents: new Set(),
   activeEvent: null,
-  bonusWinnings: 0,
-  debrisPenalty: 1.0,
   
   // Auto
   autoBet: false,
@@ -1929,7 +1930,7 @@ function updateActionButton() {
     btn.appendChild(sub);
   } else if (State.phase === 'flying') {
     btn.className = 'action-btn cashout';
-    const potentialWin = State.betAmount * State.currentMultiplier + State.bonusWinnings;
+    const potentialWin = State.betAmount * modeCfg.multiplier * State.currentMultiplier;
     btn.textContent = 'CASH OUT';
     sub.textContent = `$${potentialWin.toFixed(2)}`;
     btn.appendChild(sub);
@@ -2093,12 +2094,12 @@ function setBetPreset(amount) {
 
 function toggleAutoBet() {
   State.autoBet = !State.autoBet;
-  document.getElementById('autoBetToggle').classList.toggle('active', State.autoBet);
+  document.getElementById('autoBetBtn').classList.toggle('active', State.autoBet);
 }
 
 function toggleTurbo() {
   State.turbo = !State.turbo;
-  document.getElementById('turboToggle').classList.toggle('active', State.turbo);
+  document.getElementById('turboBtn').classList.toggle('active', State.turbo);
 }
 
 // Bet input listener
@@ -2158,8 +2159,6 @@ function startRound() {
   State.cashedOutAt = null;
   State.triggeredEvents = new Set();
   State.activeEvent = null;
-  State.bonusWinnings = 0;
-  State.debrisPenalty = 1.0;
   State.phase = 'countdown';
 
   // Reset renderer
@@ -2269,9 +2268,8 @@ function checkEvents() {
 
     switch (evt.type) {
       case 'mini_boss':
-        showEventBanner('mini-boss', `⚔️ MINI-BOSS! ×${evt.bonusMult} BONUS`);
+        showEventBanner('mini-boss', '⚔️ MINI-BOSS ENCOUNTER!');
         sound.play('miniboss');
-        State.bonusWinnings += State.betAmount * evt.bonusMult;
         DOM.statEvents.textContent = 'Mini-Boss';
         renderer.eventMarkers.push({ tick: State.currentTick, type: 'mini_boss', label: '⚔️' });
         renderer.obstacles.push({
@@ -2282,12 +2280,10 @@ function checkEvents() {
         break;
 
       case 'debris':
-        showEventBanner('debris', `☄️ DEBRIS! −${((1-evt.penalty)*100).toFixed(0)}% PENALTY`);
+        showEventBanner('debris', '☄️ ASTEROID FIELD!');
         sound.play('debris');
-        State.debrisPenalty *= evt.penalty;
-        DOM.statEvents.textContent = `Debris (${(State.debrisPenalty * 100).toFixed(0)}%)`;
+        DOM.statEvents.textContent = 'Debris';
         renderer.eventMarkers.push({ tick: State.currentTick, type: 'debris', label: '☄️' });
-        // Spawn fiery asteroids
         for (let i = 0; i < 4; i++) {
           renderer.obstacles.push({
             type: 'debris', x: renderer.rocketX + (Math.random()-0.5) * 180,
@@ -2299,9 +2295,8 @@ function checkEvents() {
         break;
 
       case 'boss_rage':
-        showEventBanner('boss-rage', `🔥 BOSS RAGE! ×${evt.bonusMult} BONUS`);
+        showEventBanner('boss-rage', '🔥 BOSS RAGE!');
         sound.play('miniboss');
-        State.bonusWinnings += State.betAmount * evt.bonusMult;
         DOM.statEvents.textContent = 'Boss Rage';
         renderer.eventMarkers.push({ tick: State.currentTick, type: 'boss_rage', label: '🔥' });
         renderer.obstacles.push({
@@ -2313,13 +2308,11 @@ function checkEvents() {
         break;
 
       case 'golden_rocket':
-        showEventBanner('golden-rocket', `🚀 GOLDEN ROCKET! ×${evt.bonusMult} BONUS`);
+        showEventBanner('golden-rocket', '🚀 GOLDEN ROCKET!');
         sound.play('golden');
-        State.bonusWinnings += State.betAmount * evt.bonusMult;
         DOM.statEvents.textContent = 'Golden Rocket';
         renderer.eventMarkers.push({ tick: State.currentTick, type: 'golden_rocket', label: '🚀' });
         renderer.isGolden = true;
-        // Spawn collectible diamonds
         for (let i = 0; i < 6; i++) {
           renderer.collectibles.push({
             x: renderer.rocketX + (Math.random()-0.5) * 120,
@@ -2346,7 +2339,9 @@ function cashOut() {
   window._currentMult = 1;
   
   const modeCfg = CONFIG.MODES[State.mode];
-  let winAmount = (State.betAmount * State.currentMultiplier * State.debrisPenalty) + State.bonusWinnings;
+  // Payout = total cost × multiplier, capped at winCap
+  const totalBet = State.betAmount * modeCfg.multiplier;
+  let winAmount = totalBet * State.currentMultiplier;
   winAmount = Math.min(winAmount, modeCfg.winCap);
   
   State.balance += winAmount;
@@ -2370,7 +2365,7 @@ function cashOut() {
     const nextCost = State.betAmount * modeCfg.multiplier;
     if (nextCost > State.balance) {
       State.autoBet = false;
-      document.getElementById('autoBetToggle').classList.remove('active');
+      document.getElementById('autoBetBtn').classList.remove('active');
     } else {
       showNextRoundTimer(2);
       setTimeout(() => {
@@ -2411,7 +2406,7 @@ function crash() {
     const nextCost = State.betAmount * modeCfg.multiplier;
     if (nextCost > State.balance) {
       State.autoBet = false;
-      document.getElementById('autoBetToggle').classList.remove('active');
+      document.getElementById('autoBetBtn').classList.remove('active');
     } else {
       showNextRoundTimer(3);
       setTimeout(() => {
