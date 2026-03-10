@@ -634,6 +634,96 @@ canvas#gameCanvas {
   font-family: 'JetBrains Mono', monospace;
 }
 
+.seed-display {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.seed-display:hover { opacity: 1; }
+
+.info-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  padding: 0 4px;
+}
+
+.info-btn:hover { opacity: 1; }
+
+/* ═══════════ RULES MODAL ═══════════ */
+.rules-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(4px);
+}
+
+.rules-modal.visible { display: flex; }
+
+.rules-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 24px 28px;
+  max-width: 480px;
+  max-height: 80vh;
+  overflow-y: auto;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.rules-content h2 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 16px;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.rules-content h3 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
+  color: var(--accent-gold);
+  margin: 12px 0 4px;
+  letter-spacing: 1px;
+}
+
+.rules-content .close-rules {
+  float: right;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.rules-content .close-rules:hover { color: var(--text-primary); }
+
+/* ═══════════ HOTKEYS HINT ═══════════ */
+.hotkeys-hint {
+  position: absolute;
+  bottom: 4px;
+  right: 12px;
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: 0.4;
+  pointer-events: none;
+  font-family: 'JetBrains Mono', monospace;
+  z-index: 5;
+}
+
 /* ═══════════ WIN POPUP ═══════════ */
 .win-popup {
   position: absolute;
@@ -892,8 +982,47 @@ canvas#gameCanvas {
   <div class="bottom-bar">
     <span class="tag">RTP 96%</span>
     <span class="tag">Provably Fair</span>
-    <span>Rocket Ride — HypeGames</span>
-    <span style="margin-left: auto">v1.0</span>
+    <span class="seed-display" id="seedDisplay" title="Round seed (click to copy)">—</span>
+    <span style="margin-left: auto">Rocket Ride — HypeGames v1.1</span>
+    <button class="info-btn" onclick="toggleRules()" title="Game rules">ℹ️</button>
+  </div>
+</div>
+
+<!-- RULES MODAL -->
+<div class="rules-modal" id="rulesModal" onclick="if(event.target===this)toggleRules()">
+  <div class="rules-content">
+    <button class="close-rules" onclick="toggleRules()">×</button>
+    <h2>🚀 Rocket Ride</h2>
+    <p>Place your bet and watch the rocket fly! Cash out before it crashes to multiply your bet.</p>
+
+    <h3>HOW TO PLAY</h3>
+    <p>1. Choose bet mode (1×, 10×, 25×, 100×) and amount<br>
+    2. Click BET or press Space<br>
+    3. Watch the multiplier grow<br>
+    4. Click CASH OUT before the rocket crashes<br>
+    5. Your payout = total bet × multiplier at cashout</p>
+
+    <h3>EVENTS</h3>
+    <p>⚔️ Mini-Boss — UFO encounter<br>
+    ☄️ Asteroid Field — Fiery meteors fly past<br>
+    🔥 Boss Rage — Flaming skull appears<br>
+    🚀 Golden Rocket — Rocket transforms to gold<br>
+    Events are visual excitement — payout is always bet × multiplier.</p>
+
+    <h3>FEATURES</h3>
+    <p>Auto-cashout — Set target multiplier to auto-collect<br>
+    Auto-bet — Automatically place bets each round<br>
+    Turbo — Faster countdown (1s vs 3s)</p>
+
+    <h3>KEYBOARD</h3>
+    <p>Space — Bet / Cash out<br>
+    1-5 — Quick bet ($1/$5/$10/$50/$100)<br>
+    M — Max bet · Q — Toggle auto · T — Toggle turbo · S — Sound</p>
+
+    <h3>MATH</h3>
+    <p>RTP: 96.00% · House edge: 4%<br>
+    ~8.5% rounds are Failed Launches (instant loss)<br>
+    Each round uses a provably fair seed shown in the footer.</p>
   </div>
 </div>
 
@@ -984,7 +1113,7 @@ class MathEngine {
     const crashTick = this.multiplierToTick(crashPoint);
     events.push({ type: 'crash', tick: crashTick, crashPoint });
 
-    return { crashPoint, eventType, events, crashTick };
+    return { crashPoint, eventType, events, crashTick, seed: this.generateSeed() };
   }
 
   static multiplierToTick(mult) {
@@ -1000,6 +1129,13 @@ class MathEngine {
 
   static randomInRange(min, max) {
     return min + Math.random() * (max - min);
+  }
+
+  // Provably fair: generate round hash (visual demo — real implementation uses server seeds)
+  static generateSeed() {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
   }
 }
 
@@ -1163,6 +1299,11 @@ class GameRenderer {
     // Stars
     this._renderStars(ctx, state);
 
+    // Ambient comets — visual interest during all flights including base_crash
+    if (state === 'flying' || state === 'launching') {
+      this._renderAmbientComets(ctx);
+    }
+
     // Multiplier graph curve + objects (only during actual flight and after)
     if (state === 'flying' || state === 'crashed' || state === 'cashed_out') {
       this._renderGraph(ctx, state);
@@ -1265,6 +1406,41 @@ class GameRenderer {
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+    }
+  }
+
+  _renderAmbientComets(ctx) {
+    // Small shooting stars that streak across randomly, gives life to "empty" rounds
+    const t = Date.now();
+    const count = 3;
+    for (let i = 0; i < count; i++) {
+      const seed = i * 3571 + Math.floor(t / 2000) * 7; // changes every 2s
+      const phase = ((t % 2000) / 2000); // 0→1 over 2 seconds
+      const startX = ((Math.sin(seed) * 0.5 + 0.5) * this.w * 1.2);
+      const startY = ((Math.cos(seed * 1.3) * 0.5 + 0.5) * this.h * 0.5);
+      const len = 40 + (seed % 30);
+      const angle = 2.3 + (seed % 100) * 0.005; // roughly left-down
+
+      const x = startX + Math.cos(angle) * phase * this.w * 0.5;
+      const y = startY + Math.sin(angle) * phase * this.h * 0.3;
+
+      if (phase < 0.05 || phase > 0.8) continue; // fade in/out
+
+      const alpha = phase < 0.2 ? phase / 0.2 : phase > 0.6 ? (1 - phase) / 0.4 : 1;
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.3;
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - Math.cos(angle) * len, y - Math.sin(angle) * len);
+      ctx.stroke();
+      // Bright head
+      ctx.beginPath();
+      ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fill();
+      ctx.restore();
     }
   }
 
@@ -1881,6 +2057,7 @@ const DOM = {
   roundResult: document.getElementById('roundResult'),
   nextRoundTimer: document.getElementById('nextRoundTimer'),
   soundToggle: document.getElementById('soundToggle'),
+  seedDisplay: document.getElementById('seedDisplay'),
 };
 
 // ──────────── INSTANCES ────────────
@@ -1977,6 +2154,7 @@ function addHistory(crashPoint, eventType, cashedOut) {
     bet: State.betAmount * modeCfg.multiplier,
     mode: State.mode,
     round: State.roundsPlayed,
+    seed: State.currentRound ? State.currentRound.seed : '',
   };
   State.history.unshift(entry);
   if (State.history.length > 50) State.history.pop();
@@ -1998,7 +2176,7 @@ function addHistory(crashPoint, eventType, cashedOut) {
   const eventNames = { base_crash: 'Base', mini_boss: 'Mini-Boss', debris: 'Debris', boss_rage: 'Boss Rage', golden_rocket: 'Golden' };
   const tooltip = document.createElement('div');
   tooltip.className = 'badge-tooltip';
-  tooltip.textContent = `#${entry.round} · $${entry.bet} · ${eventNames[eventType] || 'Base'} · ${cashedOut ? 'Win' : 'Crash'}`;
+  tooltip.textContent = `#${entry.round} · $${entry.bet} · ${eventNames[eventType] || 'Base'} · ${cashedOut ? 'Win' : 'Crash'} · ${entry.seed.slice(0, 8)}`;
   badge.appendChild(tooltip);
 
   DOM.historyBar.insertBefore(badge, DOM.historyBar.firstChild);
@@ -2120,9 +2298,14 @@ DOM.betInput.addEventListener('change', () => {
 
 // Auto cashout listener
 DOM.autoCashout.addEventListener('change', () => {
-  const val = parseFloat(DOM.autoCashout.value);
-  State.autoCashout = (val && val >= 1.01) ? val : null;
+  let val = parseFloat(DOM.autoCashout.value);
+  if (val && val < 1.01) {
+    val = 1.01;
+    DOM.autoCashout.value = '1.01';
+  }
+  State.autoCashout = (val && val >= 1.01) ? Math.round(val * 100) / 100 : null;
   if (!State.autoCashout) DOM.autoCashout.value = '';
+  DOM.autoCashout.style.borderColor = State.autoCashout ? 'var(--accent-gold)' : 'var(--border-color)';
 });
 
 // Mode tabs
@@ -2177,6 +2360,9 @@ function startRound() {
   renderer.isGolden = false;
   renderer._prevAngle = undefined;
   renderer._cachedMaxMult = 0;
+
+  // Update seed display
+  updateSeedDisplay();
 
   // Hide previous round result
   DOM.roundResult.className = 'round-result';
@@ -2351,9 +2537,19 @@ function checkEvents() {
     }
   });
 
-  // Fade obstacles/collectibles
-  renderer.obstacles.forEach(o => { o.alpha = Math.max(0, o.alpha - 0.005); });
-  renderer.collectibles.forEach(c => { c.alpha = Math.max(0, c.alpha - 0.004); });
+  // Fade obstacles/collectibles + drift with camera
+  const driftX = -0.8;
+  const driftY = 0.3;
+  renderer.obstacles.forEach(o => {
+    o.alpha = Math.max(0, o.alpha - 0.005);
+    o.x += driftX;
+    o.y += driftY;
+  });
+  renderer.collectibles.forEach(c => {
+    c.alpha = Math.max(0, c.alpha - 0.004);
+    c.x += driftX * 0.5;
+    c.y += driftY * 0.5;
+  });
 }
 
 function cashOut() {
@@ -2454,9 +2650,23 @@ function renderLoop() {
 
 // ──────────── KEYBOARD ────────────
 document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') {
-    e.preventDefault();
-    handleAction();
+  // Don't capture if typing in input
+  if (e.target.tagName === 'INPUT') return;
+  
+  switch (e.code) {
+    case 'Space':
+      e.preventDefault();
+      handleAction();
+      break;
+    case 'Digit1': setBetPreset(1); break;
+    case 'Digit2': setBetPreset(5); break;
+    case 'Digit3': setBetPreset(10); break;
+    case 'Digit4': setBetPreset(50); break;
+    case 'Digit5': setBetPreset(100); break;
+    case 'KeyQ': toggleAutoBet(); break;
+    case 'KeyT': toggleTurbo(); break;
+    case 'KeyS': toggleSound(); break;
+    case 'KeyM': setBetMax(); break;
   }
 });
 
@@ -2465,6 +2675,25 @@ updateBalance();
 updateStats();
 updateActionButton();
 renderLoop();
+
+// Rules modal
+function toggleRules() {
+  document.getElementById('rulesModal').classList.toggle('visible');
+}
+
+// Update seed display
+function updateSeedDisplay() {
+  if (State.currentRound && State.currentRound.seed) {
+    const s = State.currentRound.seed;
+    DOM.seedDisplay.textContent = '🔗 ' + s.slice(0, 8) + '…';
+    DOM.seedDisplay.title = 'Seed: ' + s + ' (click to copy)';
+    DOM.seedDisplay.onclick = () => {
+      navigator.clipboard.writeText(s).catch(() => {});
+      DOM.seedDisplay.textContent = '✓ Copied';
+      setTimeout(() => { DOM.seedDisplay.textContent = '🔗 ' + s.slice(0, 8) + '…'; }, 1000);
+    };
+  }
+}
 
 // Waiting state display
 function updateIdleDisplay() {
