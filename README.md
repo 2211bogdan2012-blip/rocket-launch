@@ -1,4 +1,4 @@
-# 🚀 Billionaire Crash — HTML Edition
+# 🚀 Rocket Launch
 
 **Standalone crash casino game in a single HTML file.** Zero dependencies, opens in any browser.
 
@@ -9,21 +9,18 @@
 ## Play
 
 ```bash
-# Option 1: Just open it
 open index.html
-
-# Option 2: Local server
+# or
 python3 -m http.server 3001
-# → http://localhost:3001
 ```
 
 ## Game Mechanics
 
-🎰 **Base Crash** (52%) — Classic crash: multiplier grows, cash out before it crashes  
-⚔️ **Mini-Boss** (11.7%) — Enemy spawns, defeat it for 1.2×–2.5× bonus  
-☄️ **Debris** (8%) — Asteroid field with −20%–50% penalty  
-🔥 **Boss Rage** (7.9%) — Epic boss fight, 1.5×–5.0× bonus  
-🚀 **Golden Rocket** (16%) — Transform into gold, 2.0×–10.0× bonus  
+🎰 **Base Crash** (52%) — Multiplier grows, cash out before it crashes  
+⚔️ **Mini-Boss** (11.7%) — Enemy spawns, 1.2×–2.5× bonus  
+☄️ **Debris** (8%) — Asteroid field, −20%–50% penalty  
+🔥 **Boss Rage** (7.9%) — Epic boss, 1.5×–5.0× bonus  
+🚀 **Golden Rocket** (16%) — Gold transform, 2.0×–10.0× bonus  
 
 ## Bet Modes
 
@@ -36,28 +33,14 @@ python3 -m http.server 3001
 
 ## Controls
 
-- **Space** — Place bet / Cash out
-- **Mouse** — All UI interactions
+- **Space** — Bet / Cash out
 - Auto-cashout at target multiplier
 - Auto-bet for continuous play
 
 ## Tech
 
-- **Rendering**: Canvas 2D (stars, rocket, trails, particles, obstacles)
-- **Sound**: Web Audio API synthesis
-- **Math**: Provably fair crash point generation (96% RTP)
-- **UI**: CSS Grid, Google Fonts (Orbitron + JetBrains Mono)
-- **Size**: Single HTML file, ~1200 lines
-
-## Math
-
-```
-crashPoint = max(1.00, floor(0.96 / random() × 100) / 100)
-multiplier(t) = e^(0.06 × t × 0.05)
-```
-
-RTP verified: `E[1/crash] = houseEdge = 0.04` → **96.0000% RTP**
+Single HTML file (~1200 lines): Canvas 2D, Web Audio synthesis, CSS Grid, Google Fonts (Orbitron + JetBrains Mono). Provably fair math: `crashPoint = 0.96 / random()` → **96% RTP**.
 
 ---
 
-Built for [Stake Engine](https://stakeengine.com) by NEXTUP MEDIA / Flame Generation LLC.
+Built for [Stake Engine](https://engine.stake.com) by NEXTUP MEDIA / Flame Generation LLC.
