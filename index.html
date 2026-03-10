@@ -1119,17 +1119,56 @@ class GameRenderer {
   }
 
   _renderStars(ctx, state) {
-    const speed = state === 'flying' ? 3 : 0.3;
-    this.stars.forEach(s => {
-      s.y += s.speed * speed;
-      if (s.y > this.h) { s.y = -5; s.x = Math.random() * this.w; }
-      if (s.x > this.w) s.x -= this.w;
+    // Speed scales with multiplier for increasing urgency
+    const mult = state === 'flying' ? (window._currentMult || 1) : 1;
+    const baseSpeed = state === 'flying' ? 4 : 0.3;
+    const speedBoost = state === 'flying' ? Math.min(mult * 0.8, 12) : 0;
+    const totalSpeed = baseSpeed + speedBoost;
+    const isFlying = state === 'flying';
 
-      ctx.beginPath();
-      ctx.arc(s.x % this.w, s.y, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${s.a})`;
-      ctx.fill();
+    this.stars.forEach(s => {
+      s.y += s.speed * totalSpeed;
+      if (s.y > this.h) {
+        s.y = -5;
+        s.x = Math.random() * this.w;
+        s.r = Math.random() * 1.5 + 0.3;
+      }
+
+      if (isFlying && totalSpeed > 3) {
+        // Draw as vertical streaks — length proportional to speed
+        const streakLen = Math.min(s.speed * totalSpeed * 2, 30);
+        ctx.beginPath();
+        ctx.moveTo(s.x % this.w, s.y);
+        ctx.lineTo(s.x % this.w, s.y - streakLen);
+        ctx.strokeStyle = `rgba(255,255,255,${s.a * 0.7})`;
+        ctx.lineWidth = s.r * 0.8;
+        ctx.stroke();
+      } else {
+        // Normal dots
+        ctx.beginPath();
+        ctx.arc(s.x % this.w, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,${s.a})`;
+        ctx.fill();
+      }
     });
+
+    // Speed lines at high multiplier (>3x)
+    if (isFlying && mult > 3) {
+      const lineCount = Math.min(Math.floor((mult - 3) * 2), 15);
+      ctx.globalAlpha = Math.min((mult - 3) / 10, 0.3);
+      for (let i = 0; i < lineCount; i++) {
+        const lx = (Math.sin(i * 7.3 + Date.now() * 0.001) * 0.5 + 0.5) * this.w;
+        const ly = (Date.now() * (0.3 + i * 0.1) + i * 200) % (this.h + 100) - 50;
+        const len = 40 + mult * 3;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(lx, ly - len);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
   }
 
   _renderGraph(ctx, state) {
@@ -1220,9 +1259,16 @@ class GameRenderer {
     const ey = toY(lastPt.mult);
     this.rocketX = ex;
     this.rocketY = ey;
-    this.rocketAngle = endIdx > 2 ? 
-      -Math.atan2(toY(this.graphPoints[endIdx].mult) - toY(this.graphPoints[Math.max(0, endIdx - 5)].mult),
-                   toX(endIdx) - toX(Math.max(0, endIdx - 5))) - Math.PI/2 : -0.3;
+    
+    // Angle: rocket nose (drawn at -PI/2) should follow curve tangent
+    if (endIdx > 5) {
+      const prevIdx = Math.max(0, endIdx - 5);
+      const dx = toX(endIdx) - toX(prevIdx);
+      const dy = toY(this.graphPoints[endIdx].mult) - toY(this.graphPoints[prevIdx].mult);
+      this.rocketAngle = Math.atan2(dy, dx) + Math.PI / 2;
+    } else {
+      this.rocketAngle = -0.3;
+    }
 
     ctx.shadowBlur = 0;
     ctx.restore();
@@ -1250,7 +1296,7 @@ class GameRenderer {
   _renderRocket(ctx) {
     const x = this.rocketX;
     const y = this.rocketY;
-    const size = 18;
+    const size = 22;
 
     ctx.save();
     ctx.translate(x, y);
@@ -1823,6 +1869,7 @@ function gameTick() {
   
   State.currentTick++;
   State.currentMultiplier = MathEngine.tickToMultiplier(State.currentTick);
+  window._currentMult = State.currentMultiplier;
   
   // Graph data
   renderer.graphPoints.push({ mult: State.currentMultiplier });
@@ -1938,6 +1985,7 @@ function cashOut() {
   clearInterval(State.tickInterval);
   State.cashedOutAt = State.currentMultiplier;
   State.phase = 'cashed_out';
+  window._currentMult = 1;
   
   const modeCfg = CONFIG.MODES[State.mode];
   let winAmount = (State.betAmount * State.currentMultiplier * State.debrisPenalty) + State.bonusWinnings;
@@ -1973,6 +2021,7 @@ function crash() {
   clearInterval(State.tickInterval);
   State.currentMultiplier = State.currentRound.crashPoint;
   State.phase = 'crashed';
+  window._currentMult = 1;
   
   const modeCfg = CONFIG.MODES[State.mode];
   State.sessionPL -= State.betAmount * modeCfg.multiplier;
