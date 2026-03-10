@@ -1190,11 +1190,17 @@ class GameRenderer {
     const gw = this.w - padding.left - padding.right;
     const gh = this.h - padding.top - padding.bottom;
 
-    // Determine axis ranges
-    const maxTick = Math.max(this.graphPoints.length, 40);
+    // Sliding window: show last N ticks, rocket stays at ~80% of X
+    const visibleTicks = 200; // ~10 seconds visible
+    const totalPts = this.graphPoints.length;
+    const scrollOffset = Math.max(0, totalPts - Math.floor(visibleTicks * 0.8));
+    const visibleStart = Math.max(0, scrollOffset);
+    const visibleEnd = totalPts;
+    const xRange = Math.max(visibleTicks, visibleEnd - visibleStart);
+
     const maxMult = Math.max(2.0, ...this.graphPoints.map(p => p.mult)) * 1.15;
 
-    const toX = (i) => padding.left + (i / maxTick) * gw;
+    const toX = (i) => padding.left + ((i - visibleStart) / xRange) * gw;
     const toY = (m) => this.h - padding.bottom - ((m - 1) / (maxMult - 1)) * gh;
 
     // Grid lines
@@ -1236,20 +1242,28 @@ class GameRenderer {
       lastPt.mult < 10 ? '#f97316' :
       lastPt.mult < 25 ? '#ef4444' : '#a855f7';
 
+    // Clip to graph area
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padding.left - 2, padding.top, gw + 4, gh + 2);
+    ctx.clip();
+
     // Glow
     ctx.shadowColor = curveColor;
     ctx.shadowBlur = 12;
 
+    // Draw from first point (may be off-screen left for smooth entry)
+    const drawStart = Math.max(0, visibleStart - 1);
+
     // Filled area under curve
     ctx.beginPath();
-    ctx.moveTo(toX(0), toY(1));
-    for (let i = 0; i < this.graphPoints.length; i++) {
+    ctx.moveTo(toX(drawStart), toY(1));
+    for (let i = drawStart; i < visibleEnd; i++) {
       ctx.lineTo(toX(i), toY(this.graphPoints[i].mult));
     }
-    ctx.lineTo(toX(this.graphPoints.length - 1), toY(1));
+    ctx.lineTo(toX(visibleEnd - 1), toY(1));
     ctx.closePath();
     const fillGrad = ctx.createLinearGradient(0, toY(maxMult), 0, toY(1));
-    const fillAlpha = state === 'crashed' ? 0.08 : 0.12;
     fillGrad.addColorStop(0, curveColor + '26');
     fillGrad.addColorStop(1, curveColor + '00');
     ctx.fillStyle = fillGrad;
@@ -1257,13 +1271,15 @@ class GameRenderer {
 
     // Line
     ctx.beginPath();
-    ctx.moveTo(toX(0), toY(this.graphPoints[0].mult));
-    for (let i = 1; i < this.graphPoints.length; i++) {
+    ctx.moveTo(toX(drawStart), toY(this.graphPoints[drawStart].mult));
+    for (let i = drawStart + 1; i < visibleEnd; i++) {
       ctx.lineTo(toX(i), toY(this.graphPoints[i].mult));
     }
     ctx.strokeStyle = curveColor;
     ctx.lineWidth = 2.5;
     ctx.stroke();
+
+    ctx.restore(); // restore clip
 
     // Position rocket at curve endpoint
     const endIdx = this.graphPoints.length - 1;
@@ -1805,6 +1821,7 @@ document.querySelectorAll('.mode-tab').forEach(tab => {
 // ──────────── GAME LOGIC ────────────
 function handleAction() {
   sound.init();
+  if (State.phase === 'countdown') return;
   
   if (State.phase === 'flying') {
     cashOut();
@@ -2019,16 +2036,21 @@ function cashOut() {
   sound.play('win');
   
   showWinPopup(winAmount);
-  showRoundResult(true, winAmount, State.currentMultiplier);
   addHistory(State.currentMultiplier, State.currentRound.eventType, true);
   renderer.addExplosion(renderer.rocketX, renderer.rocketY, 'rgba(0,231,1,1)', 40);
 
   // Auto-bet after delay
   if (State.autoBet) {
-    showNextRoundTimer(2);
-    setTimeout(() => {
-      if (State.autoBet && (State.phase === 'cashed_out')) startRound();
-    }, 2000);
+    const nextCost = State.betAmount * modeCfg.multiplier;
+    if (nextCost > State.balance) {
+      State.autoBet = false;
+      document.getElementById('autoBetToggle').classList.remove('active');
+    } else {
+      showNextRoundTimer(2);
+      setTimeout(() => {
+        if (State.autoBet && (State.phase === 'cashed_out')) startRound();
+      }, 2000);
+    }
   }
 }
 
@@ -2056,10 +2078,16 @@ function crash() {
 
   // Auto-bet after delay
   if (State.autoBet) {
-    showNextRoundTimer(3);
-    setTimeout(() => {
-      if (State.autoBet && State.phase === 'crashed') startRound();
-    }, 2500);
+    const nextCost = State.betAmount * modeCfg.multiplier;
+    if (nextCost > State.balance) {
+      State.autoBet = false;
+      document.getElementById('autoBetToggle').classList.remove('active');
+    } else {
+      showNextRoundTimer(3);
+      setTimeout(() => {
+        if (State.autoBet && State.phase === 'crashed') startRound();
+      }, 2500);
+    }
   }
 }
 
