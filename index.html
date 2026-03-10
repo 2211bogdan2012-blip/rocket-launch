@@ -385,6 +385,30 @@ canvas#gameCanvas {
   color: var(--text-primary);
 }
 
+/* ═══════════ BET PRESETS ═══════════ */
+.bet-presets {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.bet-preset {
+  flex: 1;
+  padding: 6px 2px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.bet-preset:hover { background: var(--bg-card-hover); color: var(--text-secondary); }
+.bet-preset.active { background: var(--accent-green-dim); border-color: var(--accent-green); color: var(--accent-green); }
+
 /* ═══════════ PLAY / CASHOUT BUTTON ═══════════ */
 .action-btn {
   width: 100%;
@@ -761,9 +785,21 @@ canvas#gameCanvas {
       <h3>Bet Amount</h3>
       <div class="bet-input-row">
         <input type="number" class="bet-input" id="betInput" value="10" min="1" step="1">
-        <button class="bet-btn" onclick="setBetMultiple(0.5)">½</button>
-        <button class="bet-btn" onclick="setBetMultiple(2)">2×</button>
         <button class="bet-btn" onclick="setBetMax()">MAX</button>
+      </div>
+      <div class="bet-input-row" style="margin-top:6px;">
+        <button class="bet-btn" onclick="setBetPreset(1)">$1</button>
+        <button class="bet-btn" onclick="setBetPreset(5)">$5</button>
+        <button class="bet-btn" onclick="setBetPreset(10)">$10</button>
+        <button class="bet-btn" onclick="setBetPreset(50)">$50</button>
+        <button class="bet-btn" onclick="setBetPreset(100)">$100</button>
+      </div>
+      <div class="bet-presets" id="betPresets">
+        <button class="bet-preset" onclick="setBetAmount(1)">$1</button>
+        <button class="bet-preset" onclick="setBetAmount(5)">$5</button>
+        <button class="bet-preset active" onclick="setBetAmount(10)">$10</button>
+        <button class="bet-preset" onclick="setBetAmount(50)">$50</button>
+        <button class="bet-preset" onclick="setBetAmount(100)">$100</button>
       </div>
 
       <div class="auto-cashout-row">
@@ -777,6 +813,13 @@ canvas#gameCanvas {
           <div class="toggle-knob"></div>
         </div>
         <span>Auto-bet</span>
+      </div>
+
+      <div class="autobet-toggle" style="margin-top:4px;">
+        <div class="toggle-switch" id="turboToggle" onclick="toggleTurbo()">
+          <div class="toggle-knob"></div>
+        </div>
+        <span>Turbo ⚡</span>
       </div>
     </div>
 
@@ -822,8 +865,8 @@ canvas#gameCanvas {
   <div class="bottom-bar">
     <span class="tag">RTP 96%</span>
     <span class="tag">Provably Fair</span>
-    <span>Rocket Ride — Stake Engine</span>
-    <span style="margin-left: auto">v0.9 prototype</span>
+    <span>Rocket Ride — HypeGames</span>
+    <span style="margin-left: auto">v1.0</span>
   </div>
 </div>
 
@@ -982,7 +1025,12 @@ class SoundEngine {
       switch (name) {
         case 'bet': this._tone(440, 0.08, 'sine', 0.2); break;
         case 'launch': this._sweep(200, 800, 0.4, 'sawtooth', 0.15); break;
-        case 'tick': this._tone(600 + Math.random() * 200, 0.02, 'sine', 0.05); break;
+        case 'tick': {
+          const m = window._currentMult || 1;
+          const basePitch = 400 + Math.min(m * 80, 800);
+          this._tone(basePitch + Math.random() * 100, 0.02, 'sine', Math.min(0.04 + m * 0.005, 0.1));
+          break;
+        }
         case 'cashout': this._chord([523, 659, 784], 0.3, 0.2); break;
         case 'crash': this._noise(0.5, 0.3); break;
         case 'miniboss': this._sweep(300, 150, 0.3, 'square', 0.1); break;
@@ -1045,6 +1093,7 @@ class GameRenderer {
     this.stars = [];
     this.particles = [];
     this.graphPoints = [];
+    this.eventMarkers = [];
     this.rocketX = 0;
     this.rocketY = 0;
     this.rocketAngle = 0;
@@ -1091,10 +1140,25 @@ class GameRenderer {
       ctx.translate(this.shakeX, this.shakeY);
     }
 
-    // Background gradient
+    // Background gradient — shifts color with multiplier
+    const mult = window._currentMult || 1;
+    let bgInner = '#0d1f3c';
+    let bgMid = '#0a0e17';
+    if (state === 'flying' && mult > 3) {
+      const t = Math.min((mult - 3) / 20, 1);
+      // Shift from blue-dark → purple → red-dark
+      const r1 = Math.round(13 + t * 30);
+      const g1 = Math.round(31 - t * 15);
+      const b1 = Math.round(60 + t * 30);
+      bgInner = `rgb(${r1},${g1},${b1})`;
+      const r2 = Math.round(10 + t * 20);
+      const g2 = Math.round(14 - t * 8);
+      const b2 = Math.round(23 + t * 15);
+      bgMid = `rgb(${r2},${g2},${b2})`;
+    }
     const bgGrad = ctx.createRadialGradient(this.w/2, this.h*1.2, 0, this.w/2, this.h*1.2, this.h);
-    bgGrad.addColorStop(0, '#0d1f3c');
-    bgGrad.addColorStop(0.5, '#0a0e17');
+    bgGrad.addColorStop(0, bgInner);
+    bgGrad.addColorStop(0.5, bgMid);
     bgGrad.addColorStop(1, '#050810');
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, this.w, this.h);
@@ -1280,6 +1344,58 @@ class GameRenderer {
     ctx.stroke();
 
     ctx.restore(); // restore clip
+
+    // #3: Auto-cashout target line
+    if (State.autoCashout && State.autoCashout <= maxMult && state === 'flying') {
+      const acy = toY(State.autoCashout);
+      if (acy > padding.top && acy < this.h - padding.bottom) {
+        ctx.save();
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = '#fbbf2488';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, acy);
+        ctx.lineTo(this.w - padding.right, acy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Label
+        ctx.font = 'bold 10px JetBrains Mono';
+        ctx.fillStyle = '#fbbf24';
+        ctx.textAlign = 'right';
+        ctx.fillText('TARGET ' + State.autoCashout.toFixed(2) + '×', this.w - padding.right - 4, acy - 5);
+        ctx.restore();
+      }
+    }
+
+    // #4: Event markers on the curve
+    const markerColors = { mini_boss: '#a855f7', debris: '#f97316', boss_rage: '#ef4444', golden_rocket: '#fbbf24' };
+    this.eventMarkers.forEach(m => {
+      if (m.tick < visibleStart || m.tick >= visibleEnd) return;
+      const mx = toX(m.tick);
+      const my = toY(this.graphPoints[m.tick] ? this.graphPoints[m.tick].mult : 1);
+      const color = markerColors[m.type] || '#ffffff';
+      // Dot
+      ctx.beginPath();
+      ctx.arc(mx, my, 6, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = '#0a0e17';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Emoji label above
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(m.label, mx, my - 12);
+    });
+
+    // #2: Current bet info during flight
+    if (state === 'flying') {
+      ctx.font = '11px JetBrains Mono';
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'left';
+      const modeCfg = CONFIG.MODES[State.mode];
+      ctx.fillText(`$${(State.betAmount * modeCfg.multiplier).toFixed(0)} on ${modeCfg.label}`, padding.left + 4, this.h - padding.bottom + 20);
+    }
 
     // Position rocket at curve endpoint
     const endIdx = this.graphPoints.length - 1;
@@ -1774,6 +1890,7 @@ function showNextRoundTimer(seconds) {
 function setBetMultiple(mult) {
   State.betAmount = Math.max(1, Math.round(State.betAmount * mult));
   DOM.betInput.value = State.betAmount;
+  updatePresetHighlight();
   updateActionButton();
   updateStats();
 }
@@ -1782,8 +1899,24 @@ function setBetMax() {
   const modeCfg = CONFIG.MODES[State.mode];
   State.betAmount = Math.floor(State.balance / modeCfg.multiplier);
   DOM.betInput.value = State.betAmount;
+  updatePresetHighlight();
   updateActionButton();
   updateStats();
+}
+
+function setBetAmount(amount) {
+  State.betAmount = amount;
+  DOM.betInput.value = amount;
+  updatePresetHighlight();
+  updateActionButton();
+  updateStats();
+}
+
+function updatePresetHighlight() {
+  document.querySelectorAll('.bet-preset').forEach(btn => {
+    const val = parseInt(btn.textContent.replace('$', ''));
+    btn.classList.toggle('active', val === State.betAmount);
+  });
 }
 
 function toggleAutoBet() {
@@ -1795,6 +1928,7 @@ function toggleAutoBet() {
 DOM.betInput.addEventListener('change', () => {
   State.betAmount = Math.max(1, parseInt(DOM.betInput.value) || 1);
   DOM.betInput.value = State.betAmount;
+  updatePresetHighlight();
   updateActionButton();
   updateStats();
 });
@@ -1854,6 +1988,7 @@ function startRound() {
 
   // Reset renderer
   renderer.graphPoints = [];
+  renderer.eventMarkers = [];
   renderer.obstacles = [];
   renderer.collectibles = [];
   renderer.isGolden = false;
@@ -1951,6 +2086,7 @@ function checkEvents() {
         sound.play('miniboss');
         State.bonusWinnings += State.betAmount * evt.bonusMult;
         DOM.statEvents.textContent = 'Mini-Boss';
+        renderer.eventMarkers.push({ tick: State.currentTick, type: 'mini_boss', label: '⚔️' });
         renderer.obstacles.push({
           type: 'boss', x: renderer.rocketX + (Math.random() > 0.5 ? 80 : -80),
           y: renderer.rocketY, size: 25, alpha: 1, isRage: false, points: 6
@@ -1963,6 +2099,7 @@ function checkEvents() {
         sound.play('debris');
         State.debrisPenalty *= evt.penalty;
         DOM.statEvents.textContent = `Debris (${(State.debrisPenalty * 100).toFixed(0)}%)`;
+        renderer.eventMarkers.push({ tick: State.currentTick, type: 'debris', label: '☄️' });
         // Spawn visual debris
         for (let i = 0; i < 3; i++) {
           renderer.obstacles.push({
@@ -1979,6 +2116,7 @@ function checkEvents() {
         sound.play('miniboss');
         State.bonusWinnings += State.betAmount * evt.bonusMult;
         DOM.statEvents.textContent = 'Boss Rage';
+        renderer.eventMarkers.push({ tick: State.currentTick, type: 'boss_rage', label: '🔥' });
         renderer.obstacles.push({
           type: 'boss', x: renderer.rocketX, y: renderer.rocketY - 80,
           size: 35, alpha: 1, isRage: true, points: 8
@@ -1992,6 +2130,7 @@ function checkEvents() {
         sound.play('golden');
         State.bonusWinnings += State.betAmount * evt.bonusMult;
         DOM.statEvents.textContent = 'Golden Rocket';
+        renderer.eventMarkers.push({ tick: State.currentTick, type: 'golden_rocket', label: '🚀' });
         renderer.isGolden = true;
         // Spawn collectible coins
         for (let i = 0; i < 4; i++) {
