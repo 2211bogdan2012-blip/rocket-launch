@@ -111,18 +111,24 @@ canvas#gameCanvas {
 /* ═══════════ MULTIPLIER OVERLAY ═══════════ */
 .multiplier-overlay {
   position: absolute;
+  top: 24px;
+  left: 80px;
+  text-align: left;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.multiplier-overlay.centered {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   text-align: center;
-  pointer-events: none;
-  z-index: 5;
 }
 
 .multiplier-value {
   font-family: 'Orbitron', sans-serif;
   font-weight: 900;
-  font-size: 72px;
+  font-size: 56px;
   line-height: 1;
   color: var(--text-primary);
   text-shadow: 0 0 40px rgba(0, 231, 1, 0.3);
@@ -141,9 +147,9 @@ canvas#gameCanvas {
 
 .multiplier-label {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-muted);
-  margin-top: 8px;
+  margin-top: 4px;
   letter-spacing: 2px;
   text-transform: uppercase;
 }
@@ -1101,7 +1107,6 @@ class GameRenderer {
     }
 
     if (state === 'flying' || state === 'crashed' || state === 'cashed_out') {
-      this._renderTrail(ctx);
       this._renderObstacles(ctx);
       this._renderCollectibles(ctx);
       this._renderRocket(ctx);
@@ -1209,24 +1214,15 @@ class GameRenderer {
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Dot at end
-    if (state === 'flying') {
-      const ex = toX(this.graphPoints.length - 1);
-      const ey = toY(lastPt.mult);
-      ctx.beginPath();
-      ctx.arc(ex, ey, 5, 0, Math.PI * 2);
-      ctx.fillStyle = curveColor;
-      ctx.fill();
-      // Pulse ring
-      const pulse = (Date.now() % 1000) / 1000;
-      ctx.beginPath();
-      ctx.arc(ex, ey, 5 + pulse * 10, 0, Math.PI * 2);
-      ctx.strokeStyle = curveColor;
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 1 - pulse;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
+    // Position rocket at curve endpoint
+    const endIdx = this.graphPoints.length - 1;
+    const ex = toX(endIdx);
+    const ey = toY(lastPt.mult);
+    this.rocketX = ex;
+    this.rocketY = ey;
+    this.rocketAngle = endIdx > 2 ? 
+      -Math.atan2(toY(this.graphPoints[endIdx].mult) - toY(this.graphPoints[Math.max(0, endIdx - 5)].mult),
+                   toX(endIdx) - toX(Math.max(0, endIdx - 5))) - Math.PI/2 : -0.3;
 
     ctx.shadowBlur = 0;
     ctx.restore();
@@ -1254,7 +1250,7 @@ class GameRenderer {
   _renderRocket(ctx) {
     const x = this.rocketX;
     const y = this.rocketY;
-    const size = 28;
+    const size = 18;
 
     ctx.save();
     ctx.translate(x, y);
@@ -1567,10 +1563,15 @@ function updateMultiplier() {
   
   if (State.phase === 'crashed') {
     el.classList.add('crashed');
+    DOM.multiplierOverlay.classList.add('centered');
+    DOM.multiplierLabel.textContent = 'CRASHED';
   } else if (State.phase === 'cashed_out') {
     el.classList.add('cashed-out');
+    DOM.multiplierOverlay.classList.add('centered');
+    DOM.multiplierLabel.textContent = 'CASHED OUT';
   } else if (State.phase === 'flying') {
-    // Color tiers
+    DOM.multiplierOverlay.classList.remove('centered');
+    DOM.multiplierLabel.textContent = '';
     const m = State.currentMultiplier;
     if (m >= 25) el.classList.add('tier-purple');
     else if (m >= 10) el.classList.add('tier-red');
@@ -1793,6 +1794,7 @@ function startRound() {
   let countdown = CONFIG.COUNTDOWN_SEC;
   DOM.multiplier.textContent = countdown + '...';
   DOM.multiplierLabel.textContent = 'LAUNCHING IN';
+  DOM.multiplierOverlay.classList.add('centered');
 
   State.countdownTimer = setInterval(() => {
     countdown--;
@@ -1807,13 +1809,10 @@ function startRound() {
 
 function launchFlight() {
   State.phase = 'flying';
-  DOM.multiplierLabel.textContent = 'MULTIPLIER';
+  DOM.multiplierLabel.textContent = '';
+  DOM.multiplierOverlay.classList.remove('centered');
   updateActionButton();
   sound.play('launch');
-
-  // Position rocket at bottom center
-  renderer.rocketX = renderer.w / 2;
-  renderer.rocketY = renderer.h * 0.75;
 
   // Start ticking
   State.tickInterval = setInterval(gameTick, CONFIG.TICK_MS);
@@ -1828,21 +1827,8 @@ function gameTick() {
   // Graph data
   renderer.graphPoints.push({ mult: State.currentMultiplier });
 
-  // Update rocket position (curve upward)
-  const progress = State.currentTick / (State.currentRound.crashTick || 100);
-  const targetY = renderer.h * 0.75 - progress * renderer.h * 0.5;
-  const wobbleX = Math.sin(State.currentTick * 0.05) * 15;
-  
-  renderer.rocketX = renderer.w / 2 + wobbleX;
-  renderer.rocketY = Math.max(renderer.h * 0.15, targetY);
-  renderer.rocketAngle = Math.sin(State.currentTick * 0.03) * 0.08;
-
-  // Trail
-  renderer.trailPoints.push({ x: renderer.rocketX, y: renderer.rocketY + 20 });
-  if (renderer.trailPoints.length > 80) renderer.trailPoints.shift();
-
-  // Engine particles
-  if (State.currentTick % 2 === 0) {
+  // Engine particles at rocket position (set by _renderGraph)
+  if (State.currentTick % 3 === 0) {
     renderer.addTrailParticle(renderer.rocketX, renderer.rocketY);
   }
 
@@ -2040,6 +2026,7 @@ function updateIdleDisplay() {
   if (State.phase === 'idle') {
     DOM.multiplier.innerHTML = 'PLACE BET';
     DOM.multiplierLabel.textContent = 'PRESS SPACE OR CLICK BET';
+    DOM.multiplierOverlay.classList.add('centered');
   }
 }
 updateIdleDisplay();
