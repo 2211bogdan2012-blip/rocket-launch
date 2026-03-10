@@ -835,6 +835,7 @@ canvas#gameCanvas {
 const CONFIG = {
   HOUSE_EDGE: 0.04,
   RTP: 0.96,
+  MIN_CRASH_POINT: 1.20,
   GROWTH_RATE: 0.06,
   TICK_MS: 50,
   
@@ -862,10 +863,10 @@ class MathEngine {
   // Generate crash point with house edge (provably fair style)
   static generateCrashPoint() {
     const r = Math.random();
-    // Instant crash ~4% of the time (house edge)
-    if (r < CONFIG.HOUSE_EDGE) return 1.00;
-    // Exponential distribution: E[1/crash] = house_edge → 96% RTP
-    return Math.max(1.00, Math.floor(CONFIG.RTP / r * 100) / 100);
+    // Exponential distribution: E[1/crash] = house_edge → ~96% RTP
+    const raw = Math.max(1.00, Math.floor(CONFIG.RTP / r * 100) / 100);
+    // Enforce minimum flight time — no instant crashes
+    return Math.max(raw, CONFIG.MIN_CRASH_POINT);
   }
 
   // Select event type based on weights
@@ -1271,14 +1272,21 @@ class GameRenderer {
     this.rocketX = ex;
     this.rocketY = ey;
     
-    // Angle: rocket nose (drawn at -PI/2) should follow curve tangent
-    if (endIdx > 5) {
-      const prevIdx = Math.max(0, endIdx - 5);
+    // Angle: always calculate with adaptive lookback, smooth from start
+    const lookback = Math.min(endIdx, 12);
+    if (lookback >= 1) {
+      const prevIdx = endIdx - lookback;
       const dx = toX(endIdx) - toX(prevIdx);
       const dy = toY(this.graphPoints[endIdx].mult) - toY(this.graphPoints[prevIdx].mult);
-      this.rocketAngle = Math.atan2(dy, dx) + Math.PI / 2;
+      const targetAngle = Math.atan2(dy, dx) + Math.PI / 2;
+      // Smooth interpolation to prevent jitter
+      if (this._prevAngle === undefined) this._prevAngle = targetAngle;
+      this.rocketAngle = this._prevAngle + (targetAngle - this._prevAngle) * 0.15;
+      this._prevAngle = this.rocketAngle;
     } else {
-      this.rocketAngle = -0.3;
+      // Very first frame: rocket points right (along x-axis)
+      this.rocketAngle = Math.PI / 2;
+      this._prevAngle = this.rocketAngle;
     }
 
     ctx.shadowBlur = 0;
@@ -1840,6 +1848,7 @@ function startRound() {
   renderer.obstacles = [];
   renderer.collectibles = [];
   renderer.isGolden = false;
+  renderer._prevAngle = undefined;
 
   // Hide previous round result
   DOM.roundResult.className = 'round-result';
