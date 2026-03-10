@@ -229,20 +229,47 @@ canvas#gameCanvas {
   top: 12px;
   left: 12px;
   display: flex;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
-  max-width: 60%;
+  max-width: 55%;
   z-index: 5;
+  align-items: center;
 }
 
 .history-badge {
-  padding: 3px 10px;
+  padding: 3px 8px;
   border-radius: 4px;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   animation: badgeIn 0.3s ease-out;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.15s;
 }
+
+.history-badge:hover { transform: scale(1.15); }
+
+.history-badge .badge-tooltip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  background: #1a2236ee;
+  border: 1px solid var(--border-active);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  backdrop-filter: blur(6px);
+  z-index: 20;
+  pointer-events: none;
+}
+
+.history-badge:hover .badge-tooltip { display: block; }
 
 @keyframes badgeIn {
   from { transform: scale(0); opacity: 0; }
@@ -265,6 +292,15 @@ canvas#gameCanvas {
   background: var(--accent-gold-dim);
   color: var(--accent-gold);
   border: 1px solid #ffd70055;
+}
+
+.streak-indicator {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  animation: badgeIn 0.3s ease-out;
 }
 
 /* ═══════════ SIDEBAR ═══════════ */
@@ -677,19 +713,29 @@ canvas#gameCanvas {
 @media (max-width: 900px) {
   .game-container {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 50vh auto auto;
+    grid-template-rows: auto 45vh auto auto;
   }
   .sidebar {
     grid-row: auto;
     border-left: none;
     border-top: 1px solid var(--border-color);
-    flex-direction: row;
-    flex-wrap: wrap;
-    overflow-x: auto;
-    padding: 12px;
+    flex-direction: column;
+    padding: 10px;
+    gap: 6px;
+    max-height: none;
+    overflow-y: visible;
   }
-  .sidebar-section { min-width: 250px; flex: 1; }
-  .multiplier-value { font-size: 48px; }
+  .sidebar-section { min-width: auto; }
+  .multiplier-value { font-size: 40px; }
+  .action-btn { padding: 14px; font-size: 15px; }
+  .bet-btn { padding: 8px 6px; font-size: 11px; }
+  .mode-tab { padding: 6px 2px; font-size: 11px; }
+  .history-bar { max-width: 70%; gap: 3px; }
+  .history-badge { font-size: 10px; padding: 2px 6px; }
+  .top-bar { padding: 6px 12px; }
+  .logo { font-size: 15px; }
+  .balance-display { font-size: 12px; padding: 4px 10px; }
+  .bottom-bar { font-size: 10px; padding: 4px 10px; }
 }
 </style>
 </head>
@@ -1122,13 +1168,28 @@ class GameRenderer {
     if (state === 'flying' || state === 'crashed' || state === 'cashed_out') {
       this._renderObstacles(ctx);
       this._renderCollectibles(ctx);
-      this._renderRocket(ctx);
+      // Hide rocket on crash (explosion replaces it)
+      if (state !== 'crashed') {
+        this._renderRocket(ctx);
+      }
     }
 
     // Particles
     this._renderParticles(ctx);
 
-    // #8: HypeGames watermark
+    // Round counter
+    if (State.roundsPlayed > 0 || state === 'flying') {
+      ctx.save();
+      ctx.globalAlpha = 0.2;
+      ctx.font = '10px JetBrains Mono';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Round #' + (State.roundsPlayed + (state === 'flying' ? 1 : 0)), 12, this.h - 8);
+      ctx.restore();
+    }
+
+    // HypeGames watermark
     ctx.save();
     ctx.globalAlpha = 0.12;
     ctx.font = 'bold 11px Orbitron';
@@ -1777,6 +1838,7 @@ const State = {
   
   // History
   history: [],
+  streak: 0, // positive = wins, negative = losses
   
   // Stats
   sessionPL: 0,
@@ -1892,26 +1954,81 @@ function showEventBanner(type, text) {
 }
 
 function addHistory(crashPoint, eventType, cashedOut) {
+  // Track streak
+  if (cashedOut) {
+    State.streak = State.streak > 0 ? State.streak + 1 : 1;
+  } else {
+    State.streak = State.streak < 0 ? State.streak - 1 : -1;
+  }
+  
+  // Store in history array
+  const modeCfg = CONFIG.MODES[State.mode];
+  const entry = {
+    crashPoint, eventType, cashedOut,
+    bet: State.betAmount * modeCfg.multiplier,
+    mode: State.mode,
+    round: State.roundsPlayed,
+  };
+  State.history.unshift(entry);
+  if (State.history.length > 50) State.history.pop();
+  
+  // Create badge
   const badge = document.createElement('div');
   badge.className = 'history-badge';
   
   if (cashedOut) {
     badge.classList.add('green');
-    badge.textContent = crashPoint.toFixed(2) + '×';
   } else if (eventType === 'golden_rocket') {
     badge.classList.add('gold');
-    badge.textContent = crashPoint.toFixed(2) + '×';
   } else {
     badge.classList.add('red');
-    badge.textContent = crashPoint.toFixed(2) + '×';
   }
+  badge.textContent = crashPoint.toFixed(2) + '×';
+  
+  // Tooltip
+  const eventNames = { base_crash: 'Base', mini_boss: 'Mini-Boss', debris: 'Debris', boss_rage: 'Boss Rage', golden_rocket: 'Golden' };
+  const tooltip = document.createElement('div');
+  tooltip.className = 'badge-tooltip';
+  tooltip.textContent = `#${entry.round} · $${entry.bet} · ${eventNames[eventType] || 'Base'} · ${cashedOut ? 'Win' : 'Crash'}`;
+  badge.appendChild(tooltip);
 
   DOM.historyBar.insertBefore(badge, DOM.historyBar.firstChild);
   
-  // Keep max 15
-  while (DOM.historyBar.children.length > 15) {
-    DOM.historyBar.removeChild(DOM.historyBar.lastChild);
+  // Update streak indicator
+  updateStreakIndicator();
+  
+  // Keep max 15 badges
+  const badges = DOM.historyBar.querySelectorAll('.history-badge');
+  while (badges.length > 15 && DOM.historyBar.lastElementChild?.classList.contains('history-badge')) {
+    DOM.historyBar.removeChild(DOM.historyBar.lastElementChild);
   }
+}
+
+function updateStreakIndicator() {
+  // Remove old streak indicator
+  const old = DOM.historyBar.querySelector('.streak-indicator');
+  if (old) old.remove();
+  
+  const s = State.streak;
+  if (Math.abs(s) < 2) return;
+  
+  const el = document.createElement('div');
+  el.className = 'streak-indicator';
+  
+  if (s >= 2) {
+    el.style.background = 'var(--accent-green-dim)';
+    el.style.color = 'var(--accent-green)';
+    el.style.border = '1px solid #00e70155';
+    el.textContent = '🔥' + s;
+  } else {
+    el.style.background = 'var(--accent-red-dim)';
+    el.style.color = 'var(--accent-red)';
+    el.style.border = '1px solid #ff3b5c55';
+    el.textContent = '💀' + Math.abs(s);
+  }
+  
+  // Insert at beginning
+  DOM.historyBar.insertBefore(el, DOM.historyBar.firstChild);
 }
 
 function showWinPopup(amount) {
@@ -2282,8 +2399,12 @@ function crash() {
   const totalBet = State.betAmount * modeCfg.multiplier;
   showRoundResult(false, totalBet, State.currentRound.crashPoint);
   addHistory(State.currentRound.crashPoint, State.currentRound.eventType, false);
-  renderer.addExplosion(renderer.rocketX, renderer.rocketY, 'rgba(255,59,92,1)', 50);
-  renderer.shake(10);
+  // Multi-phase crash explosion
+  renderer.addExplosion(renderer.rocketX, renderer.rocketY, 'rgba(255,255,255,1)', 15);
+  renderer.addExplosion(renderer.rocketX, renderer.rocketY, 'rgba(255,200,50,1)', 25);
+  renderer.addExplosion(renderer.rocketX, renderer.rocketY, 'rgba(255,59,92,1)', 35);
+  renderer.addExplosion(renderer.rocketX, renderer.rocketY, 'rgba(200,30,60,1)', 20);
+  renderer.shake(12);
 
   // Auto-bet after delay
   if (State.autoBet) {
