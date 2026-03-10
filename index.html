@@ -1119,50 +1119,61 @@ class GameRenderer {
   }
 
   _renderStars(ctx, state) {
-    // Speed scales with multiplier for increasing urgency
     const mult = state === 'flying' ? (window._currentMult || 1) : 1;
-    const baseSpeed = state === 'flying' ? 4 : 0.3;
-    const speedBoost = state === 'flying' ? Math.min(mult * 0.8, 12) : 0;
-    const totalSpeed = baseSpeed + speedBoost;
     const isFlying = state === 'flying';
+    
+    // Speed: rocket flies right+up → stars fly LEFT + slightly DOWN
+    const speedX = isFlying ? -(2 + Math.min(mult * 1.2, 14)) : 0;
+    const speedY = isFlying ? (0.8 + Math.min(mult * 0.3, 4)) : 0.2;
+    
+    // Streak angle: diagonal, matching rocket's perceived direction
+    const streakAngle = Math.atan2(-speedY, -speedX); // opposite of motion
 
     this.stars.forEach(s => {
-      s.y += s.speed * totalSpeed;
-      if (s.y > this.h) {
-        s.y = -5;
-        s.x = Math.random() * this.w;
-        s.r = Math.random() * 1.5 + 0.3;
-      }
+      s.x += s.speed * speedX;
+      s.y += s.speed * speedY;
+      
+      // Wrap around
+      if (s.x < -10) { s.x = this.w + 5; s.y = Math.random() * this.h; }
+      if (s.y > this.h + 10) { s.y = -5; s.x = Math.random() * this.w; }
+      if (s.x > this.w + 10) { s.x = -5; }
 
-      if (isFlying && totalSpeed > 3) {
-        // Draw as vertical streaks — length proportional to speed
-        const streakLen = Math.min(s.speed * totalSpeed * 2, 30);
+      const sx = s.x;
+      const sy = s.y;
+
+      if (isFlying && mult > 1.2) {
+        // Diagonal streaks — direction matches camera motion
+        const streakLen = Math.min(s.speed * (2 + mult) * 1.5, 35);
+        const dx = Math.cos(streakAngle) * streakLen;
+        const dy = Math.sin(streakAngle) * streakLen;
         ctx.beginPath();
-        ctx.moveTo(s.x % this.w, s.y);
-        ctx.lineTo(s.x % this.w, s.y - streakLen);
-        ctx.strokeStyle = `rgba(255,255,255,${s.a * 0.7})`;
-        ctx.lineWidth = s.r * 0.8;
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + dx, sy + dy);
+        ctx.strokeStyle = `rgba(255,255,255,${s.a * 0.6})`;
+        ctx.lineWidth = s.r * 0.7;
         ctx.stroke();
       } else {
-        // Normal dots
         ctx.beginPath();
-        ctx.arc(s.x % this.w, s.y, s.r, 0, Math.PI * 2);
+        ctx.arc(sx, sy, s.r, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255,255,255,${s.a})`;
         ctx.fill();
       }
     });
 
-    // Speed lines at high multiplier (>3x)
+    // Speed lines at high multiplier — diagonal matching flight direction
     if (isFlying && mult > 3) {
-      const lineCount = Math.min(Math.floor((mult - 3) * 2), 15);
-      ctx.globalAlpha = Math.min((mult - 3) / 10, 0.3);
+      const lineCount = Math.min(Math.floor((mult - 3) * 2.5), 18);
+      ctx.globalAlpha = Math.min((mult - 3) / 8, 0.25);
       for (let i = 0; i < lineCount; i++) {
-        const lx = (Math.sin(i * 7.3 + Date.now() * 0.001) * 0.5 + 0.5) * this.w;
-        const ly = (Date.now() * (0.3 + i * 0.1) + i * 200) % (this.h + 100) - 50;
-        const len = 40 + mult * 3;
+        const seed = i * 7.31 + 0.5;
+        const lx = ((Math.sin(seed + Date.now() * 0.0005) * 0.5 + 0.5) * this.w * 1.3) - this.w * 0.15;
+        const ly = ((Math.cos(seed * 1.7 + Date.now() * 0.0003) * 0.5 + 0.5) * this.h * 1.3) - this.h * 0.15;
+        const len = 50 + mult * 4;
+        const dx = Math.cos(streakAngle) * len;
+        const dy = Math.sin(streakAngle) * len;
         ctx.beginPath();
         ctx.moveTo(lx, ly);
-        ctx.lineTo(lx, ly - len);
+        ctx.lineTo(lx + dx, ly + dy);
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 0.5;
         ctx.stroke();
@@ -1501,11 +1512,13 @@ class GameRenderer {
   }
 
   addTrailParticle(x, y) {
+    const mult = window._currentMult || 1;
+    const speed = 1 + Math.min(mult * 0.3, 3);
     this.particles.push({
-      x: x + (Math.random() - 0.5) * 10,
-      y: y + 15,
-      vx: (Math.random() - 0.5) * 1,
-      vy: Math.random() * 2 + 1,
+      x: x + (Math.random() - 0.5) * 8,
+      y: y + 10,
+      vx: -(Math.random() * speed + 1),
+      vy: Math.random() * speed * 0.5 + 0.5,
       r: Math.random() * 3 + 1,
       life: 1,
       decay: 0.03,
