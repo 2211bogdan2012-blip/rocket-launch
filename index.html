@@ -607,6 +607,78 @@ canvas#gameCanvas {
   z-index: 15;
 }
 
+/* ═══════════ SOUND TOGGLE ═══════════ */
+.sound-toggle {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.sound-toggle:hover { border-color: var(--border-active); }
+.sound-toggle.muted { opacity: 0.4; }
+
+/* ═══════════ MULTIPLIER COLORS ═══════════ */
+.multiplier-value.tier-green { color: #00e701; text-shadow: 0 0 40px rgba(0,231,1,0.3); }
+.multiplier-value.tier-yellow { color: #fbbf24; text-shadow: 0 0 40px rgba(251,191,36,0.3); }
+.multiplier-value.tier-orange { color: #f97316; text-shadow: 0 0 40px rgba(249,115,22,0.3); }
+.multiplier-value.tier-red { color: #ef4444; text-shadow: 0 0 40px rgba(239,68,68,0.4); }
+.multiplier-value.tier-purple { color: #a855f7; text-shadow: 0 0 50px rgba(168,85,247,0.4); }
+
+/* ═══════════ ROUND RESULT ═══════════ */
+.round-result {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 28px;
+  border-radius: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 6;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+}
+
+.round-result.visible { opacity: 1; }
+
+.round-result.win {
+  background: linear-gradient(135deg, #00e70118, #00e70130);
+  border: 1px solid #00e70155;
+  color: var(--accent-green);
+}
+
+.round-result.loss {
+  background: linear-gradient(135deg, #ff3b5c18, #ff3b5c30);
+  border: 1px solid #ff3b5c55;
+  color: var(--accent-red);
+}
+
+/* ═══════════ NEXT ROUND TIMER ═══════════ */
+.next-round-timer {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.next-round-timer.visible { opacity: 1; }
+
 /* ═══════════ RESPONSIVE ═══════════ */
 @media (max-width: 900px) {
   .game-container {
@@ -633,9 +705,12 @@ canvas#gameCanvas {
   <!-- TOP BAR -->
   <div class="top-bar">
     <div class="logo">ROCKET <span>RIDE</span></div>
-    <div class="balance-display">
-      <span class="currency">$</span>
-      <span id="balanceValue">10,000.00</span>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="sound-toggle" id="soundToggle" onclick="toggleSound()" title="Toggle sound">🔊</button>
+      <div class="balance-display">
+        <span class="currency">$</span>
+        <span id="balanceValue">10,000.00</span>
+      </div>
     </div>
   </div>
 
@@ -656,6 +731,9 @@ canvas#gameCanvas {
       <div class="win-label">YOU WON</div>
       <div class="win-amount" id="winAmount">+$0.00</div>
     </div>
+
+    <div class="round-result" id="roundResult"></div>
+    <div class="next-round-timer" id="nextRoundTimer"></div>
   </div>
 
   <!-- SIDEBAR -->
@@ -959,6 +1037,7 @@ class GameRenderer {
     this.stars = [];
     this.particles = [];
     this.trailPoints = [];
+    this.graphPoints = [];
     this.rocketX = 0;
     this.rocketY = 0;
     this.rocketAngle = 0;
@@ -1016,6 +1095,11 @@ class GameRenderer {
     // Stars
     this._renderStars(ctx, state);
 
+    // Multiplier graph curve
+    if (state === 'flying' || state === 'crashed' || state === 'cashed_out') {
+      this._renderGraph(ctx, state);
+    }
+
     if (state === 'flying' || state === 'crashed' || state === 'cashed_out') {
       this._renderTrail(ctx);
       this._renderObstacles(ctx);
@@ -1041,6 +1125,111 @@ class GameRenderer {
       ctx.fillStyle = `rgba(255,255,255,${s.a})`;
       ctx.fill();
     });
+  }
+
+  _renderGraph(ctx, state) {
+    if (this.graphPoints.length < 2) return;
+
+    const padding = { left: 60, bottom: 50, top: 30, right: 30 };
+    const gw = this.w - padding.left - padding.right;
+    const gh = this.h - padding.top - padding.bottom;
+
+    // Determine axis ranges
+    const maxTick = Math.max(this.graphPoints.length, 40);
+    const maxMult = Math.max(2.0, ...this.graphPoints.map(p => p.mult)) * 1.15;
+
+    const toX = (i) => padding.left + (i / maxTick) * gw;
+    const toY = (m) => this.h - padding.bottom - ((m - 1) / (maxMult - 1)) * gh;
+
+    // Grid lines
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    // Horizontal grid + labels
+    const multSteps = [1, 1.5, 2, 3, 5, 10, 20, 50, 100].filter(m => m <= maxMult);
+    multSteps.forEach(m => {
+      const y = toY(m);
+      if (y < padding.top || y > this.h - padding.bottom) return;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(this.w - padding.right, y);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+
+    // Axis labels
+    ctx.font = '11px JetBrains Mono';
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    multSteps.forEach(m => {
+      const y = toY(m);
+      if (y < padding.top || y > this.h - padding.bottom) return;
+      ctx.fillText(m.toFixed(m >= 10 ? 0 : 1) + '×', padding.left - 8, y);
+    });
+
+    // Draw the curve - gradient colored by multiplier
+    const lastPt = this.graphPoints[this.graphPoints.length - 1];
+    const curveColor = state === 'crashed' ? '#ff3b5c' :
+      lastPt.mult < 2 ? '#00e701' :
+      lastPt.mult < 5 ? '#fbbf24' :
+      lastPt.mult < 10 ? '#f97316' :
+      lastPt.mult < 25 ? '#ef4444' : '#a855f7';
+
+    // Glow
+    ctx.shadowColor = curveColor;
+    ctx.shadowBlur = 12;
+
+    // Filled area under curve
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(1));
+    for (let i = 0; i < this.graphPoints.length; i++) {
+      ctx.lineTo(toX(i), toY(this.graphPoints[i].mult));
+    }
+    ctx.lineTo(toX(this.graphPoints.length - 1), toY(1));
+    ctx.closePath();
+    const fillGrad = ctx.createLinearGradient(0, toY(maxMult), 0, toY(1));
+    const fillAlpha = state === 'crashed' ? 0.08 : 0.12;
+    fillGrad.addColorStop(0, curveColor + '26');
+    fillGrad.addColorStop(1, curveColor + '00');
+    ctx.fillStyle = fillGrad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(this.graphPoints[0].mult));
+    for (let i = 1; i < this.graphPoints.length; i++) {
+      ctx.lineTo(toX(i), toY(this.graphPoints[i].mult));
+    }
+    ctx.strokeStyle = curveColor;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Dot at end
+    if (state === 'flying') {
+      const ex = toX(this.graphPoints.length - 1);
+      const ey = toY(lastPt.mult);
+      ctx.beginPath();
+      ctx.arc(ex, ey, 5, 0, Math.PI * 2);
+      ctx.fillStyle = curveColor;
+      ctx.fill();
+      // Pulse ring
+      const pulse = (Date.now() % 1000) / 1000;
+      ctx.beginPath();
+      ctx.arc(ex, ey, 5 + pulse * 10, 0, Math.PI * 2);
+      ctx.strokeStyle = curveColor;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 1 - pulse;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
   }
 
   _renderTrail(ctx) {
@@ -1318,6 +1507,7 @@ const State = {
   triggeredEvents: new Set(),
   activeEvent: null,
   bonusWinnings: 0,
+  debrisPenalty: 1.0,
   
   // Auto
   autoBet: false,
@@ -1356,6 +1546,9 @@ const DOM = {
   statPL: document.getElementById('statPL'),
   statRounds: document.getElementById('statRounds'),
   canvas: document.getElementById('gameCanvas'),
+  roundResult: document.getElementById('roundResult'),
+  nextRoundTimer: document.getElementById('nextRoundTimer'),
+  soundToggle: document.getElementById('soundToggle'),
 };
 
 // ──────────── INSTANCES ────────────
@@ -1376,6 +1569,14 @@ function updateMultiplier() {
     el.classList.add('crashed');
   } else if (State.phase === 'cashed_out') {
     el.classList.add('cashed-out');
+  } else if (State.phase === 'flying') {
+    // Color tiers
+    const m = State.currentMultiplier;
+    if (m >= 25) el.classList.add('tier-purple');
+    else if (m >= 10) el.classList.add('tier-red');
+    else if (m >= 5) el.classList.add('tier-orange');
+    else if (m >= 2) el.classList.add('tier-yellow');
+    else el.classList.add('tier-green');
   }
 }
 
@@ -1452,6 +1653,44 @@ function showWinPopup(amount) {
   DOM.winAmount.textContent = '+$' + amount.toFixed(2);
   DOM.winPopup.classList.add('visible');
   setTimeout(() => DOM.winPopup.classList.remove('visible'), 2000);
+}
+
+// ──────────── SOUND TOGGLE (#3) ────────────
+function toggleSound() {
+  sound.enabled = !sound.enabled;
+  DOM.soundToggle.textContent = sound.enabled ? '🔊' : '🔇';
+  DOM.soundToggle.classList.toggle('muted', !sound.enabled);
+}
+
+// ──────────── ROUND RESULT (#4) ────────────
+function showRoundResult(won, amount, multiplier) {
+  const el = DOM.roundResult;
+  if (won) {
+    el.textContent = `Cashed out at ${multiplier.toFixed(2)}× — +$${amount.toFixed(2)}`;
+    el.className = 'round-result win visible';
+  } else {
+    el.textContent = `Crashed at ${multiplier.toFixed(2)}× — Lost $${amount.toFixed(2)}`;
+    el.className = 'round-result loss visible';
+  }
+  // Auto-hide after 4s
+  setTimeout(() => { el.classList.remove('visible'); }, 4000);
+}
+
+function showNextRoundTimer(seconds) {
+  if (!State.autoBet) return;
+  const el = DOM.nextRoundTimer;
+  el.className = 'next-round-timer visible';
+  let remaining = seconds;
+  el.textContent = `Next round in ${remaining}s...`;
+  const interval = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(interval);
+      el.className = 'next-round-timer';
+    } else {
+      el.textContent = `Next round in ${remaining}s...`;
+    }
+  }, 1000);
 }
 
 // ──────────── BET CONTROLS ────────────
@@ -1532,13 +1771,19 @@ function startRound() {
   State.triggeredEvents = new Set();
   State.activeEvent = null;
   State.bonusWinnings = 0;
+  State.debrisPenalty = 1.0;
   State.phase = 'countdown';
 
   // Reset renderer
   renderer.trailPoints = [];
+  renderer.graphPoints = [];
   renderer.obstacles = [];
   renderer.collectibles = [];
   renderer.isGolden = false;
+
+  // Hide previous round result
+  DOM.roundResult.className = 'round-result';
+  DOM.nextRoundTimer.className = 'next-round-timer';
 
   updateMultiplier();
   updateActionButton();
@@ -1580,6 +1825,9 @@ function gameTick() {
   State.currentTick++;
   State.currentMultiplier = MathEngine.tickToMultiplier(State.currentTick);
   
+  // Graph data
+  renderer.graphPoints.push({ mult: State.currentMultiplier });
+
   // Update rocket position (curve upward)
   const progress = State.currentTick / (State.currentRound.crashTick || 100);
   const targetY = renderer.h * 0.75 - progress * renderer.h * 0.5;
@@ -1648,7 +1896,8 @@ function checkEvents() {
       case 'debris':
         showEventBanner('debris', `☄️ DEBRIS! −${((1-evt.penalty)*100).toFixed(0)}% PENALTY`);
         sound.play('debris');
-        DOM.statEvents.textContent = 'Debris';
+        State.debrisPenalty *= evt.penalty;
+        DOM.statEvents.textContent = `Debris (${(State.debrisPenalty * 100).toFixed(0)}%)`;
         // Spawn visual debris
         for (let i = 0; i < 3; i++) {
           renderer.obstacles.push({
@@ -1705,7 +1954,7 @@ function cashOut() {
   State.phase = 'cashed_out';
   
   const modeCfg = CONFIG.MODES[State.mode];
-  let winAmount = State.betAmount * State.currentMultiplier + State.bonusWinnings;
+  let winAmount = (State.betAmount * State.currentMultiplier * State.debrisPenalty) + State.bonusWinnings;
   winAmount = Math.min(winAmount, modeCfg.winCap);
   
   State.balance += winAmount;
@@ -1721,11 +1970,13 @@ function cashOut() {
   sound.play('win');
   
   showWinPopup(winAmount);
+  showRoundResult(true, winAmount, State.currentMultiplier);
   addHistory(State.currentMultiplier, State.currentRound.eventType, true);
   renderer.addExplosion(renderer.rocketX, renderer.rocketY, 'rgba(0,231,1,1)', 40);
 
   // Auto-bet after delay
   if (State.autoBet) {
+    showNextRoundTimer(2);
     setTimeout(() => {
       if (State.autoBet && (State.phase === 'cashed_out')) startRound();
     }, 2000);
@@ -1747,12 +1998,15 @@ function crash() {
   
   sound.play('crash');
   
+  const totalBet = State.betAmount * modeCfg.multiplier;
+  showRoundResult(false, totalBet, State.currentRound.crashPoint);
   addHistory(State.currentRound.crashPoint, State.currentRound.eventType, false);
   renderer.addExplosion(renderer.rocketX, renderer.rocketY, 'rgba(255,59,92,1)', 50);
   renderer.shake(10);
 
   // Auto-bet after delay
   if (State.autoBet) {
+    showNextRoundTimer(3);
     setTimeout(() => {
       if (State.autoBet && State.phase === 'crashed') startRound();
     }, 2500);
